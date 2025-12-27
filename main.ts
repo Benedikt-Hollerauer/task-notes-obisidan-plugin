@@ -89,12 +89,25 @@ export default class TaskNotesPlugin extends Plugin {
 			const fileItems = document.querySelectorAll('.nav-file-title');
 			
 			fileItems.forEach((item) => {
+				// Remove any existing checkbox first
+				const existingCheckbox = item.querySelector('.task-notes-checkbox');
+				if (existingCheckbox) {
+					existingCheckbox.remove();
+				}
+
 				const titleEl = item.querySelector('.nav-file-title-content');
 				if (!titleEl) return;
 
-				const fileName = titleEl.textContent || '';
+				// Get the actual file to check current name
+				const filePath = (item as HTMLElement).getAttribute('data-path');
+				if (!filePath) return;
+
+				const file = this.app.vault.getAbstractFileByPath(filePath);
+				if (!(file instanceof TFile)) return;
+
+				const fileName = file.name;
 				
-				// Check if file has task emoji
+				// Check if file has task emoji based on actual filename
 				if (this.hasTaskEmoji(fileName)) {
 					this.addCheckboxToFileExplorer(item as HTMLElement, fileName);
 				}
@@ -115,18 +128,10 @@ export default class TaskNotesPlugin extends Plugin {
 	 * Add checkbox to file explorer item
 	 */
 	addCheckboxToFileExplorer(item: HTMLElement, fileName: string) {
-		// Check if checkbox already exists
-		const existingCheckbox = item.querySelector('.task-notes-checkbox');
-		if (existingCheckbox) return;
-
 		const titleContent = item.querySelector('.nav-file-title-content');
 		if (!titleContent) return;
 
-		// Store original text if not already stored
-		if (!titleContent.hasAttribute('data-original-text')) {
-			titleContent.setAttribute('data-original-text', titleContent.textContent || '');
-		}
-
+		// Determine checkbox state from actual filename
 		const isCompleted = fileName.includes(TASK_EMOJIS.CHECKED);
 		
 		// Create checkbox
@@ -135,46 +140,56 @@ export default class TaskNotesPlugin extends Plugin {
 		checkbox.className = 'task-list-item-checkbox task-notes-checkbox';
 		checkbox.checked = isCompleted;
 		
-		// Add change handler
-		checkbox.addEventListener('change', async (e) => {
-			e.stopPropagation();
-			e.preventDefault();
-			await this.toggleTaskStatus(item, fileName);
-		});
+		// Store file path on checkbox for easy access
+		const filePath = item.getAttribute('data-path');
+		
+		// Keep pointer events local to the checkbox so the file row doesn't steal the click
+		// Disable interaction in file explorer; display-only
+		checkbox.disabled = true;
+		checkbox.tabIndex = -1;
 
 		// Insert checkbox at the beginning
 		item.insertBefore(checkbox, titleContent);
 		
-		// Create a wrapper for the text without emoji
-		const textWrapper = document.createElement('span');
-		textWrapper.className = 'task-notes-title-text';
+		// Get original text and remove ALL emojis
+		let displayText = fileName;
 		
-		// Remove emoji from display
-		let displayText = titleContent.textContent || '';
-		for (const emoji of Object.values(TASK_EMOJIS)) {
-			displayText = displayText.replace(emoji, '').trim();
+		// Remove .md extension
+		if (displayText.endsWith('.md')) {
+			displayText = displayText.slice(0, -3);
 		}
-		textWrapper.textContent = displayText;
 		
-		// Replace title content
-		titleContent.textContent = '';
-		titleContent.appendChild(textWrapper);
+		// Remove each emoji character completely
+		for (const emoji of Object.values(TASK_EMOJIS)) {
+			while (displayText.includes(emoji)) {
+				displayText = displayText.replace(emoji, '');
+			}
+		}
+		
+		// Clean up whitespace
+		displayText = displayText.trim();
+		
+		// Completely replace the text content
+		titleContent.textContent = displayText;
 	}
 
 	/**
 	 * Toggle task status by renaming file
 	 */
 	async toggleTaskStatus(item: HTMLElement, fileName: string) {
-		const titleEl = item.querySelector('.nav-file-title-content');
-		if (!titleEl) return;
+		const filePath = item.getAttribute('data-path');
+		if (!filePath) return;
 
-		// Get the file path from the data-path attribute
-		const filePath = this.getFilePathFromElement(item);
 		const file = this.app.vault.getAbstractFileByPath(filePath);
-
 		if (!(file instanceof TFile)) return;
 
-		// Use the actual current file name, not the cached one
+		await this.toggleTaskStatusFromFile(file);
+	}
+
+	/**
+	 * Toggle task status from a file object
+	 */
+	async toggleTaskStatusFromFile(file: TFile) {
 		const currentFileName = file.name;
 		let newName: string;
 		
@@ -196,15 +211,10 @@ export default class TaskNotesPlugin extends Plugin {
 		
 		try {
 			await this.app.fileManager.renameFile(file, newPath);
-			// Force immediate update
-			setTimeout(() => this.updateFileExplorer(), 100);
+			// Update file explorer after a short delay
+			setTimeout(() => this.updateFileExplorer(), 150);
 		} catch (error) {
 			console.error('Error renaming file:', error);
-			// Revert checkbox state on error
-			const checkbox = item.querySelector('.task-notes-checkbox') as HTMLInputElement;
-			if (checkbox) {
-				checkbox.checked = !checkbox.checked;
-			}
 		}
 	}
 
@@ -293,35 +303,12 @@ export default class TaskNotesPlugin extends Plugin {
 	 * Toggle task status from note content view
 	 */
 	async toggleTaskStatusFromContent(file: TFile) {
-		const fileName = file.name;
-		let newName: string;
-		
-		if (fileName.includes(TASK_EMOJIS.CHECKED)) {
-			// Unchecking: ✅ → ◻️
-			newName = fileName.replace(TASK_EMOJIS.CHECKED, TASK_EMOJIS.UNCHECKED);
-		} else if (fileName.includes(TASK_EMOJIS.UNCHECKED)) {
-			// Checking: ◻️ → ✅
-			newName = fileName.replace(TASK_EMOJIS.UNCHECKED, TASK_EMOJIS.CHECKED);
-		} else if (fileName.includes(TASK_EMOJIS.SCHEDULED)) {
-			// Checking: 📅 → ✅
-			newName = fileName.replace(TASK_EMOJIS.SCHEDULED, TASK_EMOJIS.CHECKED);
-		} else {
-			return;
-		}
-
-		// Rename the file
-		const newPath = file.parent ? `${file.parent.path}/${newName}` : newName;
-		
-		try {
-			await this.app.fileManager.renameFile(file, newPath);
-			// Update both the inline title and file explorer
-			setTimeout(() => {
-				this.addCheckboxToActiveNote();
-				this.updateFileExplorer();
-			}, 300);
-		} catch (error) {
-			console.error('Error renaming file:', error);
-		}
+		await this.toggleTaskStatusFromFile(file);
+		// Refresh both views shortly after rename so checkbox stays visible
+		setTimeout(() => {
+			this.addCheckboxToActiveNote();
+			this.updateFileExplorer();
+		}, 180);
 	}
 
 	/**
