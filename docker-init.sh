@@ -171,11 +171,11 @@ EOF
     npm install
 
     echo ''
-    echo '${GREEN}Plugin initialized successfully!${NC}'
+    echo 'Plugin initialized successfully!'
     echo ''
-    echo '${BLUE}Next steps:${NC}'
+    echo 'Next steps:'
     echo '  1. Edit main.ts to develop your plugin'
-    echo '  2. Run: docker-compose exec obsidian-plugin-dev npm run build'
+    echo '  2. Run: docker compose exec obsidian-plugin-dev npm run build'
     echo '  3. Or use: ./docker-build.sh'
     echo ''
 "

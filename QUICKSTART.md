@@ -11,7 +11,7 @@ Make sure you have Docker and Docker Compose installed on your system.
 ### 1. Clone or Navigate to This Repository
 
 ```bash
-cd task-notes-obisidan-plugin
+cd task-notes-obsidian-plugin
 ```
 
 ### 2. Start the Development Environment

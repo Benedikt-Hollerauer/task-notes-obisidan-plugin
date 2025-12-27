@@ -138,7 +138,7 @@ If you encounter permission issues with node_modules:
 
 ```bash
 docker compose down
-docker volume rm task-notes-obisidan-plugin_node_modules
+docker volume rm task-notes-obsidian-plugin_node_modules
 docker compose up -d
 ```
 
