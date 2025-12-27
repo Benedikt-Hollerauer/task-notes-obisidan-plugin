@@ -42,7 +42,7 @@ This script will:
 Or manually inside the container:
 
 ```bash
-docker-compose exec obsidian-plugin-dev npm run build
+docker compose exec obsidian-plugin-dev npm run build
 ```
 
 ## Manual Usage
