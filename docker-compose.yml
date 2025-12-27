@@ -1,0 +1,22 @@
+services:
+  obsidian-plugin-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: obsidian-plugin-dev
+    working_dir: /workspace
+    volumes:
+      # Mount the current directory to /workspace in the container
+      - .:/workspace
+      # Use a named volume for node_modules to avoid permission issues
+      - node_modules:/workspace/node_modules
+    environment:
+      # Set NODE_ENV to development
+      - NODE_ENV=development
+    # Keep container running
+    stdin_open: true
+    tty: true
+    command: sh
+
+volumes:
+  node_modules:
