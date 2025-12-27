@@ -4,8 +4,8 @@
   "description": "Sample Obsidian plugin",
   "main": "main.js",
   "scripts": {
-    "dev": "esbuild main.ts --bundle --external:obsidian --outfile=main.js --watch",
-    "build": "esbuild main.ts --bundle --external:obsidian --outfile=main.js"
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
   },
   "keywords": [],
   "author": "",
