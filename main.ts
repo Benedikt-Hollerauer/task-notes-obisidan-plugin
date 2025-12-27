@@ -279,23 +279,69 @@ export default class TaskNotesPlugin extends Plugin {
 
 		checkboxContainer.appendChild(checkbox);
 		
-		// Hide the emoji in the title text
-		const titleText = titleEl.textContent || '';
-		let displayText = titleText;
-		for (const emoji of Object.values(TASK_EMOJIS)) {
-			displayText = displayText.replace(emoji, '').trim();
-		}
+		// Get the display text - keep emoji visible, just set it to the filename
+		const titleText = fileName;
 		
 		// Clear and rebuild title content
-		titleEl.textContent = displayText;
+		titleEl.textContent = titleText;
 		
 		// Insert checkbox at the beginning
 		titleEl.insertBefore(checkboxContainer, titleEl.firstChild);
 		
 		// Add space after checkbox
-		if (displayText) {
-			const space = document.createTextNode(' ');
-			titleEl.insertBefore(space, checkboxContainer.nextSibling);
+		const space = document.createTextNode(' ');
+		titleEl.insertBefore(space, checkboxContainer.nextSibling);
+
+		// Set data attribute to track that we've processed this title
+		titleEl.setAttribute('data-processed', 'true');
+		
+		// Watch for title changes and restore checkbox if it gets removed
+		if (!titleEl.getAttribute('data-observer-set')) {
+			const observer = new MutationObserver(() => {
+				// If checkbox was removed, re-add it
+				const checkbox = titleEl.querySelector('.task-notes-checkbox-container');
+				if (!checkbox) {
+					// Rebuild the checkbox
+					const container = document.createElement('span');
+					container.className = 'task-notes-checkbox-container';
+					
+					const cb = document.createElement('input');
+					cb.type = 'checkbox';
+					cb.className = 'task-notes-checkbox task-list-item-checkbox';
+					cb.checked = isCompleted;
+					cb.addEventListener('change', async (e) => {
+						e.stopPropagation();
+						await this.toggleTaskStatusFromContent(file);
+					});
+					
+					container.appendChild(cb);
+					titleEl.insertBefore(container, titleEl.firstChild);
+					
+					const space = document.createTextNode(' ');
+					titleEl.insertBefore(space, container.nextSibling);
+				}
+				
+				// Make sure text content matches the filename (preserves emoji)
+				const currentText = titleEl.textContent || '';
+				if (!currentText.includes(fileName.slice(0, -3))) {
+					// Reconstruct: just ensure we have checkbox + space + filename
+					const checkbox = titleEl.querySelector('.task-notes-checkbox-container');
+					if (checkbox) {
+						titleEl.textContent = fileName;
+						titleEl.insertBefore(checkbox, titleEl.firstChild);
+						const space = document.createTextNode(' ');
+						titleEl.insertBefore(space, checkbox.nextSibling);
+					}
+				}
+			});
+			
+			observer.observe(titleEl, {
+				characterData: true,
+				childList: true,
+				subtree: true
+			});
+			
+			titleEl.setAttribute('data-observer-set', 'true');
 		}
 	}
 

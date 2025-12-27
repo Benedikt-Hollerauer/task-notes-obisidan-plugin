@@ -1,6 +1,60 @@
 # Task Notes Obsidian Plugin
 
-A Docker-based development environment for creating Obsidian plugins without needing to install Node.js or other dependencies on your local machine.
+An Obsidian plugin that adds interactive task management capabilities to your notes by providing visual checkboxes and automatic emoji-based task status tracking. The plugin uses task emojis (◻️ for unchecked, 📅 for scheduled, ✅ for completed) in note filenames to enable quick task status management directly from the file explorer and note titles.
+
+## Features
+
+### Core Functionality
+
+#### 1. **Interactive Checkboxes in Note Titles**
+- Automatically adds clickable checkboxes next to note titles in the editor
+- The checkbox appears only when the note filename contains a task emoji (◻️, 📅, or ✅)
+- The checkbox state is visually synchronized with the task emoji in the filename
+- Clicking the checkbox triggers an automatic file rename to update the task status
+
+#### 2. **File Explorer Task Status Display**
+- Displays checkboxes next to note names in the file explorer sidebar
+- Checkboxes are disabled/read-only in the file explorer (display-only, no interaction)
+- Shows visual representation of task status without allowing direct clicking in the explorer
+- Automatically updates when files are renamed, created, or deleted
+
+#### 3. **Automatic Task Status Management via File Renaming**
+- When you check/uncheck a checkbox, the plugin automatically renames the file with the appropriate emoji
+- **Unchecked → Checked**: ◻️ becomes ✅
+- **Checked → Unchecked**: ✅ becomes ◻️
+- **Scheduled → Checked**: 📅 becomes ✅
+- All other filename content remains unchanged; only the emoji is swapped
+
+#### 4. **Three Task States via Emojis**
+- **◻️ (Unchecked)**: Regular task that needs to be completed
+- **📅 (Scheduled)**: Task that is scheduled for future completion
+- **✅ (Checked/Completed)**: Task that has been completed
+
+#### 5. **Emoji Preservation in Note Titles**
+- The task emoji is always preserved and visible in the note title
+- When clicking into the note title to edit it and then clicking back to the note body, the emoji and checkbox remain intact
+- Uses a MutationObserver to watch for DOM changes and restore the checkbox if Obsidian re-renders the title element
+- Prevents accidental emoji deletion when switching focus between title and note content
+
+#### 6. **Dynamic File Explorer Updates**
+- Uses MutationObserver to detect new files, deletions, and renames in the file explorer
+- Automatically applies/removes task checkboxes based on whether the filename contains a task emoji
+- Monitors the `.nav-files-container` for changes and updates the display in real-time
+
+#### 7. **Multi-Pane Support**
+- Works correctly when switching between different panes/tabs
+- Registers `active-leaf-change` event to update the checkbox when switching between open notes
+- Handles `file-open` events to process newly opened notes
+
+### Event Handling
+
+The plugin registers the following Obsidian events to keep the UI synchronized:
+
+- **vault.on('rename')**: Updates file explorer when a file is renamed
+- **vault.on('create')**: Adds checkboxes to newly created task notes
+- **vault.on('delete')**: Removes checkboxes when task notes are deleted
+- **workspace.on('file-open')**: Adds checkbox to the title of newly opened task notes
+- **workspace.on('active-leaf-change')**: Updates the checkbox when switching between panes
 
 ## Prerequisites
 

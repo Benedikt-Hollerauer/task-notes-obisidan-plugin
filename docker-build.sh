@@ -9,19 +9,28 @@ NC='\033[0m' # No Color
 
 echo -e "${BLUE}Building Obsidian plugin inside Docker container...${NC}"
 
-# Check if package.json exists
-if [ ! -f package.json ]; then
-    echo -e "${RED}Error: package.json not found!${NC}"
-    echo -e "${BLUE}Please initialize your plugin first using the init script.${NC}"
-    exit 1
-fi
-
 # Run build inside container
 docker compose exec obsidian-plugin-dev npm run build
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}Build completed successfully!${NC}"
+    
+    # Copy compiled files to test vault plugin directory
+    echo -e "${BLUE}Copying built files to test vault...${NC}"
+    mkdir -p test-vault/.obsidian/plugins/task-notes
+    cp main.js manifest.json styles.css test-vault/.obsidian/plugins/task-notes/
+    
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}Files copied successfully!${NC}"
+    else
+        echo -e "${RED}Failed to copy files!${NC}"
+        exit 1
+    fi
 else
     echo -e "${RED}Build failed!${NC}"
     exit 1
 fi
+
+# Pause before closing
+echo ""
+read -p "Press Enter to close..."
