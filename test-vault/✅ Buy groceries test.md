@@ -1,4 +1,4 @@
-# ◻️ Buy groceries
+
 
 This is a pending task. When you check the checkbox in the file explorer or next to this title, the filename will automatically change from "◻️ Buy groceries.md" to "✅ Buy groceries.md".
 

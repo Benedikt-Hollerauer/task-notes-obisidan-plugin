@@ -16,21 +16,21 @@ export default class TaskNotesPlugin extends Plugin {
 		// Register event to update file explorer when files are renamed
 		this.registerEvent(
 			this.app.vault.on('rename', (file, oldPath) => {
-				this.updateFileExplorer();
+				setTimeout(() => this.updateFileExplorer(), 50);
 			})
 		);
 
 		// Register event to update file explorer when files are created
 		this.registerEvent(
 			this.app.vault.on('create', (file) => {
-				this.updateFileExplorer();
+				setTimeout(() => this.updateFileExplorer(), 50);
 			})
 		);
 
 		// Register event to update file explorer when files are deleted
 		this.registerEvent(
 			this.app.vault.on('delete', (file) => {
-				this.updateFileExplorer();
+				setTimeout(() => this.updateFileExplorer(), 50);
 			})
 		);
 
@@ -40,10 +40,19 @@ export default class TaskNotesPlugin extends Plugin {
 			this.observeFileExplorer();
 		});
 
-		// Register markdown post-processor for note content
-		this.registerMarkdownPostProcessor((element, context) => {
-			this.addCheckboxToNoteTitle(element, context);
-		});
+		// Add checkboxes to note titles using workspace leaf change events
+		this.registerEvent(
+			this.app.workspace.on('file-open', (file) => {
+				setTimeout(() => this.addCheckboxToActiveNote(), 100);
+			})
+		);
+
+		// Also check when switching between panes
+		this.registerEvent(
+			this.app.workspace.on('active-leaf-change', () => {
+				setTimeout(() => this.addCheckboxToActiveNote(), 100);
+			})
+		);
 	}
 
 	onunload() {
@@ -107,27 +116,49 @@ export default class TaskNotesPlugin extends Plugin {
 	 */
 	addCheckboxToFileExplorer(item: HTMLElement, fileName: string) {
 		// Check if checkbox already exists
-		if (item.querySelector('.task-notes-checkbox')) return;
+		const existingCheckbox = item.querySelector('.task-notes-checkbox');
+		if (existingCheckbox) return;
+
+		const titleContent = item.querySelector('.nav-file-title-content');
+		if (!titleContent) return;
+
+		// Store original text if not already stored
+		if (!titleContent.hasAttribute('data-original-text')) {
+			titleContent.setAttribute('data-original-text', titleContent.textContent || '');
+		}
 
 		const isCompleted = fileName.includes(TASK_EMOJIS.CHECKED);
 		
 		// Create checkbox
 		const checkbox = document.createElement('input');
 		checkbox.type = 'checkbox';
-		checkbox.className = 'task-notes-checkbox task-list-item-checkbox';
+		checkbox.className = 'task-list-item-checkbox task-notes-checkbox';
 		checkbox.checked = isCompleted;
 		
-		// Add click handler
-		checkbox.addEventListener('click', async (e) => {
+		// Add change handler
+		checkbox.addEventListener('change', async (e) => {
 			e.stopPropagation();
+			e.preventDefault();
 			await this.toggleTaskStatus(item, fileName);
 		});
 
 		// Insert checkbox at the beginning
-		const titleContent = item.querySelector('.nav-file-title-content');
-		if (titleContent) {
-			item.insertBefore(checkbox, titleContent);
+		item.insertBefore(checkbox, titleContent);
+		
+		// Create a wrapper for the text without emoji
+		const textWrapper = document.createElement('span');
+		textWrapper.className = 'task-notes-title-text';
+		
+		// Remove emoji from display
+		let displayText = titleContent.textContent || '';
+		for (const emoji of Object.values(TASK_EMOJIS)) {
+			displayText = displayText.replace(emoji, '').trim();
 		}
+		textWrapper.textContent = displayText;
+		
+		// Replace title content
+		titleContent.textContent = '';
+		titleContent.appendChild(textWrapper);
 	}
 
 	/**
@@ -137,23 +168,27 @@ export default class TaskNotesPlugin extends Plugin {
 		const titleEl = item.querySelector('.nav-file-title-content');
 		if (!titleEl) return;
 
-		// Get the file
-		const file = this.app.vault.getAbstractFileByPath(
-			this.getFilePathFromElement(item)
-		);
+		// Get the file path from the data-path attribute
+		const filePath = this.getFilePathFromElement(item);
+		const file = this.app.vault.getAbstractFileByPath(filePath);
 
 		if (!(file instanceof TFile)) return;
 
+		// Use the actual current file name, not the cached one
+		const currentFileName = file.name;
 		let newName: string;
 		
-		if (fileName.includes(TASK_EMOJIS.CHECKED)) {
+		if (currentFileName.includes(TASK_EMOJIS.CHECKED)) {
 			// Unchecking: ✅ → ◻️
-			newName = fileName.replace(TASK_EMOJIS.CHECKED, TASK_EMOJIS.UNCHECKED);
+			newName = currentFileName.replace(TASK_EMOJIS.CHECKED, TASK_EMOJIS.UNCHECKED);
+		} else if (currentFileName.includes(TASK_EMOJIS.UNCHECKED)) {
+			// Checking: ◻️ → ✅
+			newName = currentFileName.replace(TASK_EMOJIS.UNCHECKED, TASK_EMOJIS.CHECKED);
+		} else if (currentFileName.includes(TASK_EMOJIS.SCHEDULED)) {
+			// Checking: 📅 → ✅
+			newName = currentFileName.replace(TASK_EMOJIS.SCHEDULED, TASK_EMOJIS.CHECKED);
 		} else {
-			// Checking: ◻️ or 📅 → ✅
-			newName = fileName
-				.replace(TASK_EMOJIS.UNCHECKED, TASK_EMOJIS.CHECKED)
-				.replace(TASK_EMOJIS.SCHEDULED, TASK_EMOJIS.CHECKED);
+			return;
 		}
 
 		// Rename the file
@@ -161,8 +196,15 @@ export default class TaskNotesPlugin extends Plugin {
 		
 		try {
 			await this.app.fileManager.renameFile(file, newPath);
+			// Force immediate update
+			setTimeout(() => this.updateFileExplorer(), 100);
 		} catch (error) {
 			console.error('Error renaming file:', error);
+			// Revert checkbox state on error
+			const checkbox = item.querySelector('.task-notes-checkbox') as HTMLInputElement;
+			if (checkbox) {
+				checkbox.checked = !checkbox.checked;
+			}
 		}
 	}
 
@@ -183,53 +225,68 @@ export default class TaskNotesPlugin extends Plugin {
 	}
 
 	/**
-	 * Add checkbox to note title in the content view
+	 * Add checkbox to note title in the active note
 	 */
-	addCheckboxToNoteTitle(element: HTMLElement, context: any) {
-		// Get the active file
-		const file = this.app.workspace.getActiveFile();
+	addCheckboxToActiveNote() {
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!activeView) return;
+
+		const file = activeView.file;
 		if (!file) return;
 
-		const fileName = file.basename + '.md';
+		const fileName = file.name;
 		
 		// Only process if file has task emoji
 		if (!this.hasTaskEmoji(fileName)) return;
 
-		// Find the title (h1) in the element
-		const headings = element.querySelectorAll('h1');
+		// Get the title element - Obsidian displays the filename as inline-title
+		const titleEl = activeView.contentEl.querySelector('.inline-title');
+		if (!titleEl) return;
+
+		// Remove existing checkbox if any
+		const existingContainer = titleEl.querySelector('.task-notes-checkbox-container');
+		if (existingContainer) {
+			existingContainer.remove();
+		}
+
+		const isCompleted = fileName.includes(TASK_EMOJIS.CHECKED);
 		
-		headings.forEach((heading) => {
-			// Check if this heading contains the filename (Obsidian auto-title)
-			const headingText = heading.textContent || '';
-			
-			if (headingText.includes(file.basename)) {
-				// Check if checkbox already exists
-				if (heading.querySelector('.task-notes-checkbox')) return;
-
-				const isCompleted = fileName.includes(TASK_EMOJIS.CHECKED);
-				
-				// Create checkbox
-				const checkbox = document.createElement('input');
-				checkbox.type = 'checkbox';
-				checkbox.className = 'task-notes-checkbox task-list-item-checkbox';
-				checkbox.checked = isCompleted;
-				
-				// Add click handler
-				checkbox.addEventListener('click', async (e) => {
-					e.stopPropagation();
-					await this.toggleTaskStatusFromContent(file);
-				});
-
-				// Insert checkbox at the beginning of heading
-				heading.insertBefore(checkbox, heading.firstChild);
-				
-				// Add some spacing
-				if (heading.firstChild) {
-					const space = document.createTextNode(' ');
-					heading.insertBefore(space, heading.firstChild.nextSibling);
-				}
-			}
+		// Create checkbox container
+		const checkboxContainer = document.createElement('span');
+		checkboxContainer.className = 'task-notes-checkbox-container';
+		
+		// Create checkbox
+		const checkbox = document.createElement('input');
+		checkbox.type = 'checkbox';
+		checkbox.className = 'task-notes-checkbox task-list-item-checkbox';
+		checkbox.checked = isCompleted;
+		
+		// Add change handler (instead of click)
+		checkbox.addEventListener('change', async (e) => {
+			e.stopPropagation();
+			await this.toggleTaskStatusFromContent(file);
 		});
+
+		checkboxContainer.appendChild(checkbox);
+		
+		// Hide the emoji in the title text
+		const titleText = titleEl.textContent || '';
+		let displayText = titleText;
+		for (const emoji of Object.values(TASK_EMOJIS)) {
+			displayText = displayText.replace(emoji, '').trim();
+		}
+		
+		// Clear and rebuild title content
+		titleEl.textContent = displayText;
+		
+		// Insert checkbox at the beginning
+		titleEl.insertBefore(checkboxContainer, titleEl.firstChild);
+		
+		// Add space after checkbox
+		if (displayText) {
+			const space = document.createTextNode(' ');
+			titleEl.insertBefore(space, checkboxContainer.nextSibling);
+		}
 	}
 
 	/**
@@ -242,11 +299,14 @@ export default class TaskNotesPlugin extends Plugin {
 		if (fileName.includes(TASK_EMOJIS.CHECKED)) {
 			// Unchecking: ✅ → ◻️
 			newName = fileName.replace(TASK_EMOJIS.CHECKED, TASK_EMOJIS.UNCHECKED);
+		} else if (fileName.includes(TASK_EMOJIS.UNCHECKED)) {
+			// Checking: ◻️ → ✅
+			newName = fileName.replace(TASK_EMOJIS.UNCHECKED, TASK_EMOJIS.CHECKED);
+		} else if (fileName.includes(TASK_EMOJIS.SCHEDULED)) {
+			// Checking: 📅 → ✅
+			newName = fileName.replace(TASK_EMOJIS.SCHEDULED, TASK_EMOJIS.CHECKED);
 		} else {
-			// Checking: ◻️ or 📅 → ✅
-			newName = fileName
-				.replace(TASK_EMOJIS.UNCHECKED, TASK_EMOJIS.CHECKED)
-				.replace(TASK_EMOJIS.SCHEDULED, TASK_EMOJIS.CHECKED);
+			return;
 		}
 
 		// Rename the file
@@ -254,6 +314,11 @@ export default class TaskNotesPlugin extends Plugin {
 		
 		try {
 			await this.app.fileManager.renameFile(file, newPath);
+			// Update both the inline title and file explorer
+			setTimeout(() => {
+				this.addCheckboxToActiveNote();
+				this.updateFileExplorer();
+			}, 300);
 		} catch (error) {
 			console.error('Error renaming file:', error);
 		}
