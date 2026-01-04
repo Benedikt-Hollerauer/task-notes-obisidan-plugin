@@ -183,13 +183,14 @@
       "bases:Create new base": false
     }
   },
-  "active": "ca1e6720f55302af",
+  "active": "0a1eab81c89b1c1c",
   "lastOpenFiles": [
-    "README.md",
     "◻️ Buy groceries test.md",
-    "◻️ Finish project report.md.md",
+    "test/template.md",
     "✅ Finish project report.md.md",
-    "📅 Regular Note.md",
+    "test/README.md",
+    "✅ Regular Note.md",
+    "test",
     "✅ Buy groceries",
     "✅ Doctor appointment",
     "◻️ Finish project report"
