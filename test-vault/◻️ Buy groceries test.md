@@ -1,3 +1,3 @@
-- [ ] Test
-- [ ] test
-- [ ] test
+- [x] Test
+- [x] test
+- [x] test

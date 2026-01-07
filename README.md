@@ -91,9 +91,12 @@ The plugin registers the following Obsidian events to keep the UI synchronized:
 **In Note Title:**
 - Click the checkbox to toggle between ◻️ and ✅
 
+Note: You can only mark a task/event as ✅ via the title checkbox when all markdown checklist items in the note body are completed. If any `- [ ]` items remain, a notification appears and the status will not change.
+
 **Via Context Menu:**
 1. Right-click the file in file explorer
 2. Select desired status (Unchecked, Scheduled, or Completed)
+   - Marking as Completed ✅ is also blocked until all checklist items are completed.
 
 ### Plugin Settings
 

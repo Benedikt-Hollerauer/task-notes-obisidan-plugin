@@ -1,36 +1,5 @@
-/* Task Notes Plugin Styles */
-
-/* Base checkbox style for both explorer and inline title (inherit theme visuals) */
+/* Minimal styling so checkboxes follow theme like note body */
 .task-notes-checkbox {
-    appearance: auto;
-    -webkit-appearance: auto;
-    accent-color: var(--interactive-accent);
-    padding: 0;
-    margin: 0;
-    line-height: 1.2;
-    vertical-align: middle;
-}
-
-/* File Explorer Checkboxes */
-.nav-file-title .task-notes-checkbox {
-    margin-right: 6px;
-    flex-shrink: 0;
-    pointer-events: none; /* display-only in explorer */
-}
-
-/* Note Content Checkboxes - Container */
-.inline-title .task-notes-checkbox-container {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.2em;
     margin-right: 0.35em;
     vertical-align: middle;
-}
-
-/* Note Content Checkboxes - Match title text size */
-.inline-title .task-notes-checkbox {
-    margin: 0;
-    margin-right: 0.35em;
-    font-size: 1em;
-    padding: 0;
 }

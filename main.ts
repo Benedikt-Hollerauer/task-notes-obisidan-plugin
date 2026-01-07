@@ -229,9 +229,6 @@ export default class TaskNotesPlugin extends Plugin {
 		checkbox.checked = emoji === TASK_EMOJIS.CHECKED;
 		checkbox.disabled = !interactive;
 		
-		checkbox.style.marginRight = '0.5em';
-		checkbox.style.cursor = interactive ? 'pointer' : 'default';
-
 		return checkbox;
 	}
 
@@ -327,6 +324,16 @@ export default class TaskNotesPlugin extends Plugin {
 	 */
 	private async handleTitleCheckboxClick(file: TFile, currentEmoji: string) {
 		const newEmoji = this.getNextEmoji(currentEmoji);
+
+		// Guard: Only allow marking as completed when all markdown todos are checked
+		if (newEmoji === TASK_EMOJIS.CHECKED) {
+			const allChecked = await this.areAllMarkdownTodosChecked(file);
+			if (!allChecked) {
+				new Notice('Please complete all checklist items in the note first.');
+				return;
+			}
+		}
+
 		const newName = file.basename.replace(TASK_EMOJI_REGEX, `${newEmoji} $2`);
 		const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
 
@@ -335,6 +342,26 @@ export default class TaskNotesPlugin extends Plugin {
 		} catch (error) {
 			new Notice(`Failed to rename file: ${error.message}`);
 			console.error('Error renaming file:', error);
+		}
+	}
+
+	/**
+	 * Check if all markdown todo items ("- [ ]") in the note body are checked
+	 */
+	private async areAllMarkdownTodosChecked(file: TFile): Promise<boolean> {
+		try {
+			const content = await this.app.vault.read(file);
+			// Fast path: if no todos present, allow completion
+			const hasAnyTodo = /(^|\n)\s*[-*+]\s+\[[ xX]\]/m.test(content);
+			if (!hasAnyTodo) return true;
+
+			// If there is at least one todo, ensure none are unchecked "[ ]"
+			const hasUnchecked = /(^|\n)\s*[-*+]\s+\[\s?\]\s+/m.test(content);
+			return !hasUnchecked;
+		} catch (e) {
+			console.error('Error reading file to check todos:', e);
+			// Fail safe: do not block if read fails
+			return true;
 		}
 	}
 
@@ -533,6 +560,15 @@ export default class TaskNotesPlugin extends Plugin {
 		const match = file.basename.match(TASK_EMOJI_REGEX);
 		if (!match) {
 			return;
+		}
+
+		// Guard menu action as well when marking as completed
+		if (newEmoji === TASK_EMOJIS.CHECKED) {
+			const allChecked = await this.areAllMarkdownTodosChecked(file);
+			if (!allChecked) {
+				new Notice('Please complete all checklist items in the note first.');
+				return;
+			}
 		}
 
 		const [, , nameWithoutEmoji] = match;
