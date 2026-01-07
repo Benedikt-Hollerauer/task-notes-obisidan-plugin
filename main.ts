@@ -29,6 +29,7 @@ const TASK_EMOJI_REGEX = /^(◻️|📅|✅)\s+(.+)$/;
 export default class TaskNotesPlugin extends Plugin {
 	private titleCheckboxObserver: MutationObserver | null = null;
 	private fileExplorerObserver: MutationObserver | null = null;
+	private fileUncheckedState: Map<string, boolean> = new Map();
 	settings: TaskNotesSettings;
 
 	async onload() {
@@ -87,6 +88,18 @@ export default class TaskNotesPlugin extends Plugin {
 			this.initializeFileExplorer();
 			this.updateTitleCheckbox(this.app.workspace.getActiveFile());
 		});
+
+		// Initialize todo state map for all markdown files
+		await this.initializeTodoState();
+
+		// React to content edits to auto-reopen if new unchecked todos are introduced
+		this.registerEvent(
+			this.app.vault.on('modify', async (file) => {
+				if (file instanceof TFile && file.extension === 'md') {
+					await this.handleFileModify(file);
+				}
+			})
+		);
 	}
 
 	async loadSettings() {
@@ -116,6 +129,9 @@ export default class TaskNotesPlugin extends Plugin {
 		
 		// Remove title checkbox
 		this.removeTitleCheckbox();
+
+		// Clear state
+		this.fileUncheckedState.clear();
 	}
 
 	/**
@@ -388,6 +404,13 @@ export default class TaskNotesPlugin extends Plugin {
 			if (activeFile && activeFile.path === file.path) {
 				this.updateTitleCheckbox(file);
 			}
+
+			// Move tracked state from old path to new path
+			const prev = this.fileUncheckedState.get(oldPath);
+			if (typeof prev === 'boolean') {
+				this.fileUncheckedState.delete(oldPath);
+				this.fileUncheckedState.set(file.path, prev);
+			}
 		}
 	}
 
@@ -397,6 +420,8 @@ export default class TaskNotesPlugin extends Plugin {
 	private handleFileCreate(file: TAbstractFile) {
 		if (file instanceof TFile && file.extension === 'md') {
 			this.updateFileExplorerItem(file);
+			// Initialize state for new file
+			this.refreshFileUncheckedState(file).catch(() => {});
 		}
 	}
 
@@ -407,6 +432,56 @@ export default class TaskNotesPlugin extends Plugin {
 		if (file instanceof TFile && file.extension === 'md') {
 			// File explorer item will be automatically removed by Obsidian
 			// Just ensure we clean up any references
+			this.fileUncheckedState.delete(file.path);
+		}
+	}
+
+	/**
+	 * Initialize per-file unchecked state map at load to enable accurate change detection
+	 */
+	private async initializeTodoState() {
+		const files = this.app.vault.getMarkdownFiles();
+		for (const f of files) {
+			await this.refreshFileUncheckedState(f);
+		}
+	}
+
+	/** Update tracked state for a file by scanning its content */
+	private async refreshFileUncheckedState(file: TFile) {
+		try {
+			const content = await this.app.vault.read(file);
+			const hasUnchecked = /(^|\n)\s*[-*+]\s+\[\s?\]\s+/m.test(content);
+			this.fileUncheckedState.set(file.path, hasUnchecked);
+		} catch (e) {
+			// Ignore read errors
+		}
+	}
+
+	/** Handle file content modifications to auto-reopen checked tasks */
+	private async handleFileModify(file: TFile) {
+		let prev = this.fileUncheckedState.get(file.path);
+		try {
+			const content = await this.app.vault.read(file);
+			const hasUnchecked = /(^|\n)\s*[-*+]\s+\[\s?\]\s+/m.test(content);
+			// If we don't have previous state (e.g., very first observed edit), initialize it
+			if (typeof prev !== 'boolean') {
+				this.fileUncheckedState.set(file.path, hasUnchecked);
+				return;
+			}
+
+			// Only act when a transition from no unchecked -> has unchecked occurs
+			if (!prev && hasUnchecked) {
+				const match = file.basename.match(TASK_EMOJI_REGEX);
+				if (match && match[1] === TASK_EMOJIS.CHECKED) {
+					// Reopen the task by switching to unchecked
+					await this.changeTaskStatus(file, TASK_EMOJIS.UNCHECKED);
+					new Notice('Note contains unchecked checklist items. Reopening task to ◻️.');
+				}
+			}
+			// Update tracked state
+			this.fileUncheckedState.set(file.path, hasUnchecked);
+		} catch (e) {
+			// On error, don't change state
 		}
 	}
 

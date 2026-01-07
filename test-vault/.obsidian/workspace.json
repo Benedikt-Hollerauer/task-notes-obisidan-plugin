@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "◻️ Finish project report.md.md",
+                "file": "✅ Finish project report.md.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "◻️ Finish project report.md"
+              "title": "✅ Finish project report.md"
             }
           }
         ]
@@ -185,9 +185,9 @@
   },
   "active": "0a1eab81c89b1c1c",
   "lastOpenFiles": [
-    "◻️ Regular Note.md",
-    "◻️ Buy groceries test.md",
-    "◻️ Finish project report.md.md",
+    "✅ Buy groceries test.md",
+    "✅ Regular Note.md",
+    "✅ Finish project report.md.md",
     "test/template.md",
     "test/README.md",
     "test",

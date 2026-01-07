@@ -30,6 +30,10 @@ An Obsidian plugin that adds interactive task management capabilities to your no
 - **📅 (Scheduled)**: Task that is scheduled for future completion
 - **✅ (Checked/Completed)**: Task that has been completed
 
+#### 4.1. Auto-Reopen on New Unchecked Todos
+- If a note is marked as ✅ and you edit the body in a way that introduces a new unchecked checklist item (e.g., add `- [ ] ...` or change an item back to unchecked), the plugin automatically reopens the task by switching the filename emoji to ◻️.
+- Only triggers when the edit causes a transition from “no unchecked todos” to “has unchecked todos” to avoid false positives.
+
 #### 5. **Right-Click Context Menu**
 - Convert regular notes to tasks by right-clicking in file explorer
 - Options: Convert to Unchecked ◻️, Scheduled 📅, or Completed ✅
@@ -97,6 +101,15 @@ Note: You can only mark a task/event as ✅ via the title checkbox when all mark
 1. Right-click the file in file explorer
 2. Select desired status (Unchecked, Scheduled, or Completed)
    - Marking as Completed ✅ is also blocked until all checklist items are completed.
+
+### Auto-Reopen Behavior Details
+- Trigger: Editing a note currently marked ✅ such that the content gains at least one unchecked checklist item (`- [ ]`).
+- Detection: The plugin tracks each file’s “has unchecked todos” state and only flips back to ◻️ when this state changes from false → true due to the current edit.
+- Non-triggering cases:
+   - Adding text that is not a checklist item.
+   - Edits when the note already had unchecked items prior to your change (no state transition).
+   - Adding only checked items (`- [x]` or `- [X]`).
+ - Notification: When an auto-reopen happens, a small Obsidian notice appears: “Note contains unchecked checklist items. Reopening task to ◻️.”
 
 ### Plugin Settings
 
