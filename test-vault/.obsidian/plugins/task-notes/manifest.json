@@ -6,6 +6,5 @@
   "description": "Add interactive checkboxes to notes with task emojis. Checking the box automatically updates the emoji.",
   "author": "Benedikt Hollerauer",
   "authorUrl": "https://benedikt-hollerauer.com",
-  "repo": "Benedikt-Hollerauer/task-notes-obisidan-plugin",
   "isDesktopOnly": false
 }
