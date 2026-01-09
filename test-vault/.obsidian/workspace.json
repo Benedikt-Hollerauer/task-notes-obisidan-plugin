@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "test/template.md",
+                "file": "✅ Buy groceries test.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "template"
+              "title": "✅ Buy groceries test"
             }
           }
         ]
@@ -185,10 +185,10 @@
   },
   "active": "0a1eab81c89b1c1c",
   "lastOpenFiles": [
+    "test/template.md",
     "✅ Finish project report.md.md",
     "✅ Buy groceries test.md",
     "✅ Regular Note.md",
-    "test/template.md",
     "test/README.md",
     "test",
     "✅ Buy groceries",

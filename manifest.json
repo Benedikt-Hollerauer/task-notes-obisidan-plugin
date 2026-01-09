@@ -6,6 +6,9 @@
   "description": "Add interactive checkboxes to notes with task emojis (◻️, 📅). Checking the box automatically updates the emoji to ✅.",
   "author": "Your Name",
   "authorUrl": "https://benedikt-hollerauer.com",
+  "authorEmail": "contact@benedikt-hollerauer.com",
+  "repo": "https://github.com/Benedikt-Hollerauer/task-notes-obisidan-plugin",
   "main": "main.js",
+  "css": "styles.css",
   "isDesktopOnly": false
 }
