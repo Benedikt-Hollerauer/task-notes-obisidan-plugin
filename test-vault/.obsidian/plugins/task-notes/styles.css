@@ -3,3 +3,30 @@
     margin-right: 0.35em;
     vertical-align: middle;
 }
+
+/* Full width inputs in settings */
+.task-notes-input-fullwidth {
+    width: 100%;
+}
+
+/* Suggestion dropdown for template picker */
+.suggestion-container {
+    position: absolute;
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    width: var(--task-notes-suggest-width, 200px);
+}
+
+.suggestion-item {
+    padding: 6px 12px;
+    cursor: pointer;
+}
+
+.suggestion-item.selected {
+    background: var(--background-modifier-hover);
+}

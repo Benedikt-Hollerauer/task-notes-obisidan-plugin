@@ -1,5 +1,4 @@
-import { App, Plugin, TFile, TAbstractFile, Menu, Notice, WorkspaceLeaf, PluginSettingTab, Setting, normalizePath, TextComponent } from 'obsidian';
-import { FuzzySuggestModal, SuggestModal } from 'obsidian';
+import { App, Plugin, TFile, TAbstractFile, Menu, Notice, PluginSettingTab, Setting, normalizePath } from 'obsidian';
 
 // Plugin settings interface
 interface TaskNotesSettings {
@@ -34,7 +33,7 @@ export default class TaskNotesPlugin extends Plugin {
 	settings: TaskNotesSettings;
 
 	async onload() {
-		console.log('Loading Task Notes Plugin');
+		console.debug('Loading Task Notes Plugin');
 
 		// Load settings
 		await this.loadSettings();
@@ -112,7 +111,7 @@ export default class TaskNotesPlugin extends Plugin {
 	}
 
 	onunload() {
-		console.log('Unloading Task Notes Plugin');
+		console.debug('Unloading Task Notes Plugin');
 		
 		// Clean up observers
 		if (this.titleCheckboxObserver) {
@@ -442,18 +441,18 @@ export default class TaskNotesPlugin extends Plugin {
 		const hasTaskEmoji = !!match;
 
 		if (!hasTaskEmoji) {
-			menu.addItem(item => item.setTitle('Convert to Unchecked Task ◻️').setIcon('checkbox-glyph').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.UNCHECKED); }));
-			menu.addItem(item => item.setTitle('Convert to Scheduled Task 📅').setIcon('calendar-glyph').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.SCHEDULED); }));
-			menu.addItem(item => item.setTitle('Convert to Completed Task ✅').setIcon('checkmark').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.CHECKED); }));
-			menu.addItem(item => item.setTitle('Convert to Not Done ❌').setIcon('cross').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.UNIMPORTANT); }));
+			menu.addItem(item => item.setTitle('Convert to unchecked task ◻️').setIcon('checkbox-glyph').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.UNCHECKED); }));
+			menu.addItem(item => item.setTitle('Convert to scheduled task 📅').setIcon('calendar-glyph').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.SCHEDULED); }));
+			menu.addItem(item => item.setTitle('Convert to completed task ✅').setIcon('checkmark').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.CHECKED); }));
+			menu.addItem(item => item.setTitle('Convert to unimportant ❌').setIcon('cross').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.UNIMPORTANT); }));
 		} else {
-			const current = match![1];
-			menu.addItem(item => item.setTitle('Remove Task Status').setIcon('cross').onClick(async () => { await this.removeTaskEmoji(file); }));
+			const current = match[1];
+			menu.addItem(item => item.setTitle('Remove task status').setIcon('cross').onClick(async () => { await this.removeTaskEmoji(file); }));
 
-			if (current !== TASK_EMOJIS.UNCHECKED) menu.addItem(item => item.setTitle('Mark as Unchecked ◻️').setIcon('checkbox-glyph').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.UNCHECKED); }));
-			if (current !== TASK_EMOJIS.SCHEDULED) menu.addItem(item => item.setTitle('Mark as Scheduled 📅').setIcon('calendar-glyph').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.SCHEDULED); }));
-			if (current !== TASK_EMOJIS.CHECKED) menu.addItem(item => item.setTitle('Mark as Completed ✅').setIcon('checkmark').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.CHECKED); }));
-			if (current !== TASK_EMOJIS.UNIMPORTANT) menu.addItem(item => item.setTitle('Mark as Not Done ❌').setIcon('cross').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.UNIMPORTANT); }));
+			if (current !== TASK_EMOJIS.UNCHECKED) menu.addItem(item => item.setTitle('Mark as unchecked ◻️').setIcon('checkbox-glyph').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.UNCHECKED); }));
+			if (current !== TASK_EMOJIS.SCHEDULED) menu.addItem(item => item.setTitle('Mark as scheduled 📅').setIcon('calendar-glyph').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.SCHEDULED); }));
+			if (current !== TASK_EMOJIS.CHECKED) menu.addItem(item => item.setTitle('Mark as completed ✅').setIcon('checkmark').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.CHECKED); }));
+			if (current !== TASK_EMOJIS.UNIMPORTANT) menu.addItem(item => item.setTitle('Mark as unimportant ❌').setIcon('cross').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.UNIMPORTANT); }));
 		}
 
 		// Show the menu at mouse position (guarded)
@@ -575,7 +574,7 @@ export default class TaskNotesPlugin extends Plugin {
 			// Add options to convert to task or event
 			menu.addItem((item) => {
 				item
-					.setTitle('Convert to Unchecked Task ◻️')
+					.setTitle('Convert to unchecked task ◻️')
 					.setIcon('checkbox-glyph')
 					.onClick(async () => {
 						await this.convertToTask(file, TASK_EMOJIS.UNCHECKED);
@@ -584,7 +583,7 @@ export default class TaskNotesPlugin extends Plugin {
 
 			menu.addItem((item) => {
 				item
-					.setTitle('Convert to Scheduled Task 📅')
+					.setTitle('Convert to scheduled task 📅')
 					.setIcon('calendar-glyph')
 					.onClick(async () => {
 						await this.convertToTask(file, TASK_EMOJIS.SCHEDULED);
@@ -593,7 +592,7 @@ export default class TaskNotesPlugin extends Plugin {
 
 			menu.addItem((item) => {
 				item
-					.setTitle('Convert to Completed Task ✅')
+					.setTitle('Convert to completed task ✅')
 					.setIcon('checkmark')
 					.onClick(async () => {
 						await this.convertToTask(file, TASK_EMOJIS.CHECKED);
@@ -602,7 +601,7 @@ export default class TaskNotesPlugin extends Plugin {
 
 			menu.addItem((item) => {
 				item
-					.setTitle('Convert to Unimportant ❌')
+					.setTitle('Convert to unimportant ❌')
 					.setIcon('cross')
 					.onClick(async () => {
 						await this.convertToTask(file, TASK_EMOJIS.UNIMPORTANT);
@@ -676,23 +675,23 @@ export default class TaskNotesPlugin extends Plugin {
 		const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
 
 		try {
-			console.log('=== Starting conversion ===');
-			console.log('Original file path:', file.path);
-			console.log('Original file basename:', file.basename);
-			console.log('New name:', newName);
-			console.log('New path:', newPath);
-			console.log('File parent:', file.parent?.path || 'no parent');
+			console.debug('=== Starting conversion ===');
+			console.debug('Original file path:', file.path);
+			console.debug('Original file basename:', file.basename);
+			console.debug('New name:', newName);
+			console.debug('New path:', newPath);
+			console.debug('File parent:', file.parent?.path || 'no parent');
 			
 			// Apply template before renaming if enabled
 			if (this.settings.applyTemplateOnConvert) {
-				console.log('Applying template before rename...');
+				console.debug('Applying template before rename...');
 				await this.applyTemplateToFile(file, emoji, true);
 			}
 			
 			// Then rename the file
-			console.log('Renaming file...');
+			console.debug('Renaming file...');
 			await this.app.fileManager.renameFile(file, newPath);
-			console.log('File renamed successfully');
+			console.debug('File renamed successfully');
 			
 			new Notice(`Converted to task: ${newName}`);
 		} catch (error) {
@@ -780,20 +779,20 @@ export default class TaskNotesPlugin extends Plugin {
 		}
 
 		if (!templatePath || !templatePath.trim()) {
-			console.log('No template configured for emoji:', emoji);
+			console.debug('No template configured for emoji:', emoji);
 			return; // No template configured
 		}
 
 		// Normalize the template path
 		templatePath = normalizePath(templatePath.trim());
-		console.log('Applying template from:', templatePath, 'to file:', file.path);
+		console.debug('Applying template from:', templatePath, 'to file:', file.path);
 
 		try {
 			// Try multiple methods to find the template file
 			let templateFile = this.app.vault.getFileByPath(templatePath);
 			
 			if (!templateFile) {
-				console.log('getFileByPath failed, trying getAbstractFileByPath...');
+				console.debug('getFileByPath failed, trying getAbstractFileByPath...');
 				const abstractFile = this.app.vault.getAbstractFileByPath(templatePath);
 				if (abstractFile instanceof TFile) {
 					templateFile = abstractFile;
@@ -802,7 +801,7 @@ export default class TaskNotesPlugin extends Plugin {
 			
 			// Also try with .md extension if not present
 			if (!templateFile && !templatePath.endsWith('.md')) {
-				console.log('Trying with .md extension...');
+				console.debug('Trying with .md extension...');
 				const pathWithExt = templatePath + '.md';
 				templateFile = this.app.vault.getFileByPath(pathWithExt);
 				if (!templateFile) {
@@ -815,16 +814,16 @@ export default class TaskNotesPlugin extends Plugin {
 			
 			if (!templateFile) {
 				console.warn(`Template not found at path: ${templatePath}`);
-				console.log('Available markdown files:', this.app.vault.getMarkdownFiles().map(f => f.path));
+				console.debug('Available markdown files:', this.app.vault.getMarkdownFiles().map(f => f.path));
 				new Notice(`Template not found: ${templatePath}`);
 				return;
 			}
 
-			console.log('Found template file:', templateFile.path);
+			console.debug('Found template file:', templateFile.path);
 
 			// Read template content
 			const templateContent = await this.app.vault.read(templateFile);
-			console.log('Template content:', templateContent.substring(0, 100), '... (length:', templateContent.length, ')');
+			console.debug('Template content:', templateContent.substring(0, 100), '... (length:', templateContent.length, ')');
 			
 			if (!templateContent) {
 				console.warn('Template is empty');
@@ -833,19 +832,19 @@ export default class TaskNotesPlugin extends Plugin {
 			
 			// Read current file content
 			const currentContent = await this.app.vault.read(file);
-			console.log('Current file content length:', currentContent.length);
+			console.debug('Current file content length:', currentContent.length);
 			
 			// Apply template if file is empty or if forced (on conversion)
 			if (forceApply || currentContent.trim().length === 0) {
 				// Process template variables (basic support)
 				const processedContent = this.processTemplateVariables(templateContent, file);
-				console.log('Processed content:', processedContent.substring(0, 100), '... (length:', processedContent.length, ')');
-				
+				console.debug('Processed content:', processedContent.substring(0, 100), '... (length:', processedContent.length, ')');
+
 				await this.app.vault.modify(file, processedContent);
-				console.log('Template applied successfully to:', file.path);
+				console.debug('Template applied successfully to:', file.path);
 				new Notice('Template applied');
 			} else {
-				console.log('File not empty and forceApply=false, skipping template application');
+				console.debug('File not empty and forceApply=false, skipping template application');
 			}
 		} catch (error) {
 			console.error('Error applying template:', error);
@@ -919,7 +918,7 @@ class TaskNotesSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		containerEl.createEl('h2', { text: 'Task Notes Settings' });
+		new Setting(containerEl).setName('Task notes settings').setHeading();
 
 		// Enable/disable template application
 		new Setting(containerEl)
@@ -937,7 +936,7 @@ class TaskNotesSettingTab extends PluginSettingTab {
 			return; // Don't show template settings if disabled
 		}
 
-		containerEl.createEl('h3', { text: 'Template Configuration' });
+		new Setting(containerEl).setName('Template configuration').setHeading();
 		
 		const templatesFolder = this.plugin.getTemplatesFolder();
 		const description = containerEl.createEl('p', { cls: 'setting-item-description' });
@@ -945,7 +944,7 @@ class TaskNotesSettingTab extends PluginSettingTab {
 			description.setText(`Templates from folder: ${templatesFolder}`);
 		} else {
 			description.setText('No template folder configured. Go to Settings → Core plugins → Templates to set a template folder.');
-			description.style.color = 'var(--text-warning)';
+			description.addClass('mod-warning');
 		}
 
 		// Get available templates
@@ -970,7 +969,7 @@ class TaskNotesSettingTab extends PluginSettingTab {
 						this.plugin.settings.uncheckedTaskTemplate = value;
 						await this.plugin.saveSettings();
 					});
-				text.inputEl.style.width = '100%';
+				text.inputEl.addClass('task-notes-input-fullwidth');
 			});
 
 		// Scheduled task template
@@ -985,7 +984,7 @@ class TaskNotesSettingTab extends PluginSettingTab {
 						this.plugin.settings.scheduledTaskTemplate = value;
 						await this.plugin.saveSettings();
 					});
-				text.inputEl.style.width = '100%';
+				text.inputEl.addClass('task-notes-input-fullwidth');
 			});
 
 		// Completed task template
@@ -1000,7 +999,7 @@ class TaskNotesSettingTab extends PluginSettingTab {
 						this.plugin.settings.completedTaskTemplate = value;
 						await this.plugin.saveSettings();
 					});
-				text.inputEl.style.width = '100%';
+				text.inputEl.addClass('task-notes-input-fullwidth');
 			});
 
 		if (templateFiles.length > 0) {
@@ -1108,35 +1107,19 @@ class TemplateFileSuggest {
 		if (!this.suggestEl) {
 			this.suggestEl = document.createElement('div');
 			this.suggestEl.className = 'suggestion-container';
-			this.suggestEl.style.cssText = `
-				position: absolute;
-				background: var(--background-primary);
-				border: 1px solid var(--background-modifier-border);
-				border-radius: 4px;
-				max-height: 200px;
-				overflow-y: auto;
-				z-index: 1000;
-				box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-			`;
-			
 			const rect = this.inputEl.getBoundingClientRect();
 			this.suggestEl.style.top = (rect.bottom + window.scrollY) + 'px';
 			this.suggestEl.style.left = rect.left + 'px';
-			this.suggestEl.style.width = rect.width + 'px';
-			
+			this.suggestEl.style.setProperty('--task-notes-suggest-width', rect.width + 'px');
 			document.body.appendChild(this.suggestEl);
 		}
 
-		this.suggestEl.empty();
+		while (this.suggestEl.firstChild) this.suggestEl.removeChild(this.suggestEl.firstChild);
 
 		this.suggestions.forEach((file, index) => {
-			const item = this.suggestEl!.createDiv('suggestion-item');
+			const item = document.createElement('div');
+			item.className = 'suggestion-item' + (index === this.selectedIndex ? ' selected' : '');
 			item.textContent = file.path;
-			item.style.cssText = `
-				padding: 6px 12px;
-				cursor: pointer;
-				${index === this.selectedIndex ? 'background: var(--background-modifier-hover);' : ''}
-			`;
 
 			item.addEventListener('mouseenter', () => {
 				this.selectedIndex = index;
