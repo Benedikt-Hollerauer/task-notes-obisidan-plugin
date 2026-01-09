@@ -611,7 +611,7 @@ export default class TaskNotesPlugin extends Plugin {
 			// Add option to remove task emoji
 			menu.addItem((item) => {
 				item
-					.setTitle('Remove Task Status')
+					.setTitle('Remove task status')
 					.setIcon('cross')
 					.onClick(async () => {
 						await this.removeTaskEmoji(file);
@@ -624,7 +624,7 @@ export default class TaskNotesPlugin extends Plugin {
 			if (currentEmoji !== TASK_EMOJIS.UNCHECKED) {
 				menu.addItem((item) => {
 					item
-						.setTitle('Mark as Unchecked ◻️')
+						.setTitle('Mark as unchecked ◻️')
 						.setIcon('checkbox-glyph')
 						.onClick(async () => {
 							await this.changeTaskStatus(file, TASK_EMOJIS.UNCHECKED);
@@ -635,7 +635,7 @@ export default class TaskNotesPlugin extends Plugin {
 			if (currentEmoji !== TASK_EMOJIS.SCHEDULED) {
 				menu.addItem((item) => {
 					item
-						.setTitle('Mark as Scheduled 📅')
+						.setTitle('Mark as scheduled 📅')
 						.setIcon('calendar-glyph')
 						.onClick(async () => {
 							await this.changeTaskStatus(file, TASK_EMOJIS.SCHEDULED);
@@ -646,7 +646,7 @@ export default class TaskNotesPlugin extends Plugin {
 			if (currentEmoji !== TASK_EMOJIS.CHECKED) {
 				menu.addItem((item) => {
 					item
-						.setTitle('Mark as Completed ✅')
+						.setTitle('Mark as completed ✅')
 						.setIcon('checkmark')
 						.onClick(async () => {
 							await this.changeTaskStatus(file, TASK_EMOJIS.CHECKED);
@@ -657,7 +657,7 @@ export default class TaskNotesPlugin extends Plugin {
 			if (currentEmoji !== TASK_EMOJIS.UNIMPORTANT) {
 				menu.addItem((item) => {
 					item
-						.setTitle('Mark as Unimportant ❌')
+						.setTitle('Mark as unimportant ❌')
 						.setIcon('cross')
 						.onClick(async () => {
 							await this.changeTaskStatus(file, TASK_EMOJIS.UNIMPORTANT);
@@ -918,7 +918,7 @@ class TaskNotesSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		new Setting(containerEl).setName('Task notes settings').setHeading();
+		new Setting(containerEl).setName('General').setHeading();
 
 		// Enable/disable template application
 		new Setting(containerEl)
@@ -1130,7 +1130,7 @@ class TemplateFileSuggest {
 				this.selectSuggestion(file);
 			});
 
-			this.suggestEl!.appendChild(item);
+			if (this.suggestEl) this.suggestEl.appendChild(item);
 		});
 	}
 
