@@ -6,5 +6,6 @@
   "description": "Add interactive checkboxes to notes with task emojis (◻️, 📅). Checking the box automatically updates the emoji to ✅.",
   "author": "Your Name",
   "authorUrl": "https://benedikt-hollerauer.com",
+  "main": "main.js",
   "isDesktopOnly": false
 }

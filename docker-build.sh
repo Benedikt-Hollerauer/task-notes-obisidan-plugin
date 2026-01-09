@@ -24,10 +24,12 @@ if [ $? -eq 0 ]; then
         echo -e "${GREEN}Files copied successfully!${NC}"
     else
         echo -e "${RED}Failed to copy files!${NC}"
+        read -p "Press Enter to close..."
         exit 1
     fi
 else
     echo -e "${RED}Build failed!${NC}"
+    read -p "Press Enter to close..."
     exit 1
 fi
 

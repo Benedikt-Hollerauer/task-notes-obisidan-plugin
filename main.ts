@@ -21,10 +21,11 @@ const DEFAULT_SETTINGS: TaskNotesSettings = {
 const TASK_EMOJIS = {
 	UNCHECKED: '◻️',
 	SCHEDULED: '📅',
-	CHECKED: '✅'
+	CHECKED: '✅',
+	UNIMPORTANT: '❌'
 } as const;
 
-const TASK_EMOJI_REGEX = /^(◻️|📅|✅)\s+(.+)$/;
+const TASK_EMOJI_REGEX = /^(◻️|📅|✅|❌)\s+(.+)$/;
 
 export default class TaskNotesPlugin extends Plugin {
 	private titleCheckboxObserver: MutationObserver | null = null;
@@ -170,20 +171,23 @@ export default class TaskNotesPlugin extends Plugin {
 
 		this.fileExplorerObserver.observe(fileExplorerContainer, {
 			childList: true,
-			subtree: true
+			subtree: true,
+			attributes: true,
+			characterData: true
 		});
 	}
 
 	/**
 	 * Process a file explorer node and add checkboxes if needed
 	 */
-	private processFileExplorerNode(node: HTMLElement) {
-		// Check if this is a file item
-		const fileItems = node.querySelectorAll('.nav-file-title');
+	private processFileExplorerNode(_node: HTMLElement) {
+		// Re-scan visible file items and ensure checkboxes exist. We avoid relying
+		// solely on addedNodes because Obsidian may update existing items instead.
+		const fileItems = document.querySelectorAll('.nav-file-title');
 		fileItems.forEach((fileItem) => {
-			const fileName = fileItem.getAttribute('data-path');
-			if (fileName) {
-				const file = this.app.vault.getAbstractFileByPath(fileName);
+			const filePath = fileItem.getAttribute('data-path');
+			if (filePath) {
+				const file = this.app.vault.getAbstractFileByPath(filePath);
 				if (file instanceof TFile && file.extension === 'md') {
 					this.updateFileExplorerItem(file);
 				}
@@ -200,19 +204,30 @@ export default class TaskNotesPlugin extends Plugin {
 			return;
 		}
 
-		// Remove existing checkbox if any
+		// Best-effort: avoid repeatedly removing/re-adding the same checkbox
+		// (which can cause an observer-triggered mutation loop and freeze the UI).
 		const existingCheckbox = fileItem.querySelector('.task-notes-checkbox');
-		if (existingCheckbox) {
-			existingCheckbox.remove();
-		}
 
 		const match = file.basename.match(TASK_EMOJI_REGEX);
 		if (!match) {
+			// If no task emoji but a checkbox exists, remove it once.
+			if (existingCheckbox) existingCheckbox.remove();
 			return;
 		}
 
 		const [, emoji] = match;
-		const checkbox = this.createCheckbox(emoji, false); // read-only in file explorer
+
+		// If an identical checkbox is already present, do nothing.
+		if (existingCheckbox) {
+			const existingEmoji = existingCheckbox.getAttribute('data-emoji');
+			if (existingEmoji === emoji) {
+				return;
+			}
+			// Otherwise remove it and recreate with the correct emoji
+			existingCheckbox.remove();
+		}
+
+		const checkbox = this.createCheckbox(emoji, false, file); // read-only in file explorer
 
 		// Insert checkbox at the beginning of the title
 		const titleContent = fileItem.querySelector('.nav-file-title-content');
@@ -238,13 +253,32 @@ export default class TaskNotesPlugin extends Plugin {
 	/**
 	 * Create a checkbox element
 	 */
-	private createCheckbox(emoji: string, interactive: boolean = true): HTMLElement {
+	private createCheckbox(emoji: string, interactive: boolean = true, fileForMenu?: TFile): HTMLElement {
 		const checkbox = document.createElement('input');
 		checkbox.type = 'checkbox';
 		checkbox.className = 'task-notes-checkbox';
-		checkbox.checked = emoji === TASK_EMOJIS.CHECKED;
+		// Show as checked for completed tasks and for 'unimportant' tasks per user request
+		checkbox.checked = (emoji === TASK_EMOJIS.CHECKED) || (emoji === TASK_EMOJIS.UNIMPORTANT);
 		checkbox.disabled = !interactive;
-		
+		// store emoji for quick lookup — use data attribute rather than reassigning
+		// the read-only `dataset` property in some environments.
+		checkbox.setAttribute('data-emoji', emoji);
+
+		// If associated with a file (file explorer checkbox), add a contextmenu
+		// handler so users can right-click the checkbox to change task type.
+		if (fileForMenu) {
+			checkbox.addEventListener('contextmenu', (e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				try {
+					this.showContextMenuForFile(fileForMenu!, e as MouseEvent, emoji, false);
+				} catch (err) {
+					console.error('Error showing context menu for file checkbox:', err);
+					new Notice('Failed to open context menu');
+				}
+			});
+		}
+
 		return checkbox;
 	}
 
@@ -272,11 +306,18 @@ export default class TaskNotesPlugin extends Plugin {
 		}
 
 		// Create and insert checkbox
-		const checkbox = this.createCheckbox(emoji, true);
+		const checkbox = this.createCheckbox(emoji, true, file);
 		checkbox.addEventListener('click', (e) => {
 			e.preventDefault();
 			e.stopPropagation();
 			this.handleTitleCheckboxClick(file, emoji);
+		});
+
+		// Context menu on title checkbox
+		checkbox.addEventListener('contextmenu', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			this.showContextMenuForFile(file, e as MouseEvent, emoji, true);
 		});
 
 		titleEl.insertBefore(checkbox, titleEl.firstChild);
@@ -389,6 +430,39 @@ export default class TaskNotesPlugin extends Plugin {
 			return TASK_EMOJIS.UNCHECKED;
 		}
 		return TASK_EMOJIS.CHECKED;
+	}
+
+	/**
+	 * Show context menu for a given file when user right-clicks on checkbox/title icon.
+	 */
+	private showContextMenuForFile(file: TFile, e: MouseEvent, currentEmoji: string, _isTitle: boolean) {
+		const menu = new Menu();
+
+		const match = file.basename.match(TASK_EMOJI_REGEX);
+		const hasTaskEmoji = !!match;
+
+		if (!hasTaskEmoji) {
+			menu.addItem(item => item.setTitle('Convert to Unchecked Task ◻️').setIcon('checkbox-glyph').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.UNCHECKED); }));
+			menu.addItem(item => item.setTitle('Convert to Scheduled Task 📅').setIcon('calendar-glyph').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.SCHEDULED); }));
+			menu.addItem(item => item.setTitle('Convert to Completed Task ✅').setIcon('checkmark').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.CHECKED); }));
+			menu.addItem(item => item.setTitle('Convert to Not Done ❌').setIcon('cross').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.UNIMPORTANT); }));
+		} else {
+			const current = match![1];
+			menu.addItem(item => item.setTitle('Remove Task Status').setIcon('cross').onClick(async () => { await this.removeTaskEmoji(file); }));
+
+			if (current !== TASK_EMOJIS.UNCHECKED) menu.addItem(item => item.setTitle('Mark as Unchecked ◻️').setIcon('checkbox-glyph').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.UNCHECKED); }));
+			if (current !== TASK_EMOJIS.SCHEDULED) menu.addItem(item => item.setTitle('Mark as Scheduled 📅').setIcon('calendar-glyph').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.SCHEDULED); }));
+			if (current !== TASK_EMOJIS.CHECKED) menu.addItem(item => item.setTitle('Mark as Completed ✅').setIcon('checkmark').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.CHECKED); }));
+			if (current !== TASK_EMOJIS.UNIMPORTANT) menu.addItem(item => item.setTitle('Mark as Not Done ❌').setIcon('cross').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.UNIMPORTANT); }));
+		}
+
+		// Show the menu at mouse position (guarded)
+		try {
+			menu.showAtMouseEvent(e);
+		} catch (err) {
+			console.error('Error showing menu at mouse event:', err);
+			new Notice('Failed to open menu');
+		}
 	}
 
 	/**
@@ -525,6 +599,15 @@ export default class TaskNotesPlugin extends Plugin {
 						await this.convertToTask(file, TASK_EMOJIS.CHECKED);
 					});
 			});
+
+			menu.addItem((item) => {
+				item
+					.setTitle('Convert to Unimportant ❌')
+					.setIcon('cross')
+					.onClick(async () => {
+						await this.convertToTask(file, TASK_EMOJIS.UNIMPORTANT);
+					});
+			});
 		} else {
 			// Add option to remove task emoji
 			menu.addItem((item) => {
@@ -568,6 +651,17 @@ export default class TaskNotesPlugin extends Plugin {
 						.setIcon('checkmark')
 						.onClick(async () => {
 							await this.changeTaskStatus(file, TASK_EMOJIS.CHECKED);
+						});
+				});
+			}
+
+			if (currentEmoji !== TASK_EMOJIS.UNIMPORTANT) {
+				menu.addItem((item) => {
+					item
+						.setTitle('Mark as Unimportant ❌')
+						.setIcon('cross')
+						.onClick(async () => {
+							await this.changeTaskStatus(file, TASK_EMOJIS.UNIMPORTANT);
 						});
 				});
 			}
