@@ -307,10 +307,16 @@ export default class TaskNotesPlugin extends Plugin {
 
 		// Create and insert checkbox
 		const checkbox = this.createCheckbox(emoji, true, file);
-		checkbox.addEventListener('click', async (e) => {
+		checkbox.addEventListener('click', (e) => {
 			e.preventDefault();
 			e.stopPropagation();
-			await this.handleTitleCheckboxClick(file, emoji);
+			void (async () => {
+				try {
+					await this.handleTitleCheckboxClick(file, emoji);
+				} catch (err) {
+					console.error(err);
+				}
+			})();
 		});
 
 		// Context menu on title checkbox
