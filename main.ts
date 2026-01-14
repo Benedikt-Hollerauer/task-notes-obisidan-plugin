@@ -266,11 +266,12 @@ export default class TaskNotesPlugin extends Plugin {
 		// If associated with a file (file explorer checkbox), add a contextmenu
 		// handler so users can right-click the checkbox to change task type.
 		if (fileForMenu) {
+			const fileForMenuRef = fileForMenu;
 			checkbox.addEventListener('contextmenu', (e) => {
 				e.preventDefault();
 				e.stopPropagation();
 				try {
-					this.showContextMenuForFile(fileForMenu!, e as MouseEvent, emoji, false);
+					this.showContextMenuForFile(fileForMenuRef, e, emoji, false);
 				} catch (err) {
 					console.error('Error showing context menu for file checkbox:', err);
 					new Notice('Failed to open context menu');
@@ -306,17 +307,17 @@ export default class TaskNotesPlugin extends Plugin {
 
 		// Create and insert checkbox
 		const checkbox = this.createCheckbox(emoji, true, file);
-		checkbox.addEventListener('click', (e) => {
+		checkbox.addEventListener('click', async (e) => {
 			e.preventDefault();
 			e.stopPropagation();
-			this.handleTitleCheckboxClick(file, emoji);
+			await this.handleTitleCheckboxClick(file, emoji);
 		});
 
 		// Context menu on title checkbox
 		checkbox.addEventListener('contextmenu', (e) => {
 			e.preventDefault();
 			e.stopPropagation();
-			this.showContextMenuForFile(file, e as MouseEvent, emoji, true);
+			this.showContextMenuForFile(file, e, emoji, true);
 		});
 
 		titleEl.insertBefore(checkbox, titleEl.firstChild);
@@ -526,7 +527,7 @@ export default class TaskNotesPlugin extends Plugin {
 			const hasUnchecked = /(^|\n)\s*[-*+]\s+\[\s?\]\s+/m.test(content);
 			this.fileUncheckedState.set(file.path, hasUnchecked);
 		} catch (e) {
-			// Ignore read errors
+			console.error('Error refresh file unchecked state:', e);
 		}
 	}
 
@@ -554,7 +555,7 @@ export default class TaskNotesPlugin extends Plugin {
 			// Update tracked state
 			this.fileUncheckedState.set(file.path, hasUnchecked);
 		} catch (e) {
-			// On error, don't change state
+			console.error('Error handling file modify for todo state:', e);
 		}
 	}
 
@@ -918,8 +919,6 @@ class TaskNotesSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		new Setting(containerEl).setName('General').setHeading();
-
 		// Enable/disable template application
 		new Setting(containerEl)
 			.setName('Apply templates on conversion')
@@ -939,22 +938,17 @@ class TaskNotesSettingTab extends PluginSettingTab {
 		new Setting(containerEl).setName('Template configuration').setHeading();
 		
 		const templatesFolder = this.plugin.getTemplatesFolder();
-		const description = containerEl.createEl('p', { cls: 'setting-item-description' });
 		if (templatesFolder) {
-			description.setText(`Templates from folder: ${templatesFolder}`);
+			new Setting(containerEl).setDesc(`Templates from folder: ${templatesFolder}`);
 		} else {
-			description.setText('No template folder configured. Go to Settings → Core plugins → Templates to set a template folder.');
-			description.addClass('mod-warning');
+			new Setting(containerEl).setDesc('No template folder configured. Go to settings → core plugins → templates to set a template folder.');
 		}
 
 		// Get available templates
 		const templateFiles = this.plugin.getTemplateFiles();
 		
 		if (templateFiles.length === 0) {
-			containerEl.createEl('p', {
-				text: 'No templates found. Create template files in your configured templates folder.',
-				cls: 'mod-warning'
-			});
+			new Setting(containerEl).setDesc('No templates found. Create template files in your configured templates folder.');
 		}
 
 		// Unchecked task template
@@ -1004,11 +998,8 @@ class TaskNotesSettingTab extends PluginSettingTab {
 
 		if (templateFiles.length > 0) {
 			// Template variables info
-			containerEl.createEl('h3', { text: 'Template Variables' });
-			containerEl.createEl('p', {
-				text: 'You can use these variables in your template files:',
-				cls: 'setting-item-description'
-			});
+			new Setting(containerEl).setName('Template variables').setHeading();
+			new Setting(containerEl).setDesc('You can use these variables in your template files:');
 			const variablesList = containerEl.createEl('ul', { cls: 'task-notes-variables' });
 			const variables = [
 				{ var: '{{title}}', desc: 'File name without task emoji' },
@@ -1024,10 +1015,7 @@ class TaskNotesSettingTab extends PluginSettingTab {
 				li.appendText(` - ${desc}`);
 			});
 
-			containerEl.createEl('p', { 
-				text: 'Note: Templates are only applied to empty files to prevent overwriting existing content.',
-				cls: 'setting-item-description'
-			});
+			new Setting(containerEl).setDesc('Note: templates are only applied to empty files to prevent overwriting existing content.');
 		}
 	}
 }
