@@ -1,4 +1,22 @@
-import { App, Plugin, TFile, TAbstractFile, Menu, Notice, PluginSettingTab, Setting, normalizePath } from 'obsidian';
+import { App, Plugin, TFile, TAbstractFile, Menu, Notice, PluginSettingTab, Setting, normalizePath, Modal } from 'obsidian';
+
+// Item type enum
+enum ItemType {
+	TASK = '✅',
+	EVENT = '📅',
+	CANCELLED = '❌'
+}
+
+// Task properties interface
+interface TaskProperties {
+	actionWords: string;
+	amount: string;
+	amountOutcome: string;
+	// Optional date/time fields (only for events)
+	startDate?: string; // YYYY-MM-DD
+	endDate?: string; // YYYY-MM-DD (for date ranges)
+	time?: string; // HH.MMh format
+}
 
 // Plugin settings interface
 interface TaskNotesSettings {
@@ -6,6 +24,11 @@ interface TaskNotesSettings {
 	scheduledTaskTemplate: string;
 	completedTaskTemplate: string;
 	applyTemplateOnConvert: boolean;
+	// Format templates
+	uncheckedTaskFormat: string;
+	scheduledTaskFormat: string;
+	completedTaskFormat: string;
+	cancelledTaskFormat: string;
 }
 
 // Default settings
@@ -13,7 +36,11 @@ const DEFAULT_SETTINGS: TaskNotesSettings = {
 	uncheckedTaskTemplate: '',
 	scheduledTaskTemplate: '',
 	completedTaskTemplate: '',
-	applyTemplateOnConvert: true
+	applyTemplateOnConvert: true,
+	uncheckedTaskFormat: '{action} - {amount} - {outcome}',
+	scheduledTaskFormat: 'By {date} (at {time} - {range}), {action} - {amount} - {outcome}',
+	completedTaskFormat: '{action} - {amount} - {outcome}',
+	cancelledTaskFormat: '{action} - {amount} - {outcome}'
 };
 
 // Task emoji constants
@@ -25,6 +52,374 @@ const TASK_EMOJIS = {
 } as const;
 
 const TASK_EMOJI_REGEX = /^(◻️|📅|✅|❌)\s+(.+)$/;
+
+/**
+ * Parse task name into properties
+ * Format: "Action words - Amount - Amount outcome" (for non-events)
+ * Format: "By YYYY-MM-DD, (at HH.MMh - YYYY-MM-DD) Action words - Amount - Amount outcome" (for events with time and date range)
+ */
+function parseTaskProperties(taskName: string, isEvent: boolean): TaskProperties {
+	const cleanPlaceholder = (value: string): string => {
+		// If the value looks like a placeholder (e.g., {amount}), treat it as empty
+		if (value && /\{[^}]+\}/.test(value)) return '';
+		return value;
+	};
+
+	const props: TaskProperties = {
+		actionWords: '',
+		amount: '',
+		amountOutcome: ''
+	};
+
+	if (isEvent) {
+		// Try to parse "By" format: By YYYY-MM-DD (optional time/range), action - amount - outcome
+		const byRegex = /^By\s+(\d{4}-\d{2}-\d{2})(?:\s+\((?:at\s+)?(\d{2}\.\d{2}h)?(?:\s*-\s*)?(\d{4}-\d{2}-\d{2})?\))?(?:,\s+)?(.+)$/;
+		const match = taskName.match(byRegex);
+
+		if (match) {
+			props.startDate = cleanPlaceholder(match[1]);
+			props.time = match[2] ? cleanPlaceholder(match[2]) : undefined;
+			props.endDate = match[3] ? cleanPlaceholder(match[3]) : undefined;
+			const remainder = match[4];
+
+			// Now parse the remainder as: "Action words - Amount - Amount outcome"
+			const partRegex = /^(.+?)\s*-\s*(.+?)\s*-\s*(.+)$/;
+			const partMatch = remainder.match(partRegex);
+
+			if (partMatch) {
+				props.actionWords = cleanPlaceholder(partMatch[1].trim());
+				props.amount = cleanPlaceholder(partMatch[2].trim());
+				props.amountOutcome = cleanPlaceholder(partMatch[3].trim());
+			} else {
+				// If parsing fails, treat entire remainder as action words
+				props.actionWords = cleanPlaceholder(remainder.trim());
+			}
+		} else {
+			// Fallback: try old format or treat as regular task format
+			const partRegex = /^(.+?)\s*-\s*(.+?)\s*-\s*(.+)$/;
+			const partMatch = taskName.match(partRegex);
+
+			if (partMatch) {
+				props.actionWords = cleanPlaceholder(partMatch[1].trim());
+				props.amount = cleanPlaceholder(partMatch[2].trim());
+				props.amountOutcome = cleanPlaceholder(partMatch[3].trim());
+			} else {
+				props.actionWords = cleanPlaceholder(taskName.trim());
+			}
+		}
+	} else {
+		// Non-event format: "Action words - Amount - Amount outcome"
+		const partRegex = /^(.+?)\s*-\s*(.+?)\s*-\s*(.+)$/;
+		const match = taskName.match(partRegex);
+
+		if (match) {
+			props.actionWords = cleanPlaceholder(match[1].trim());
+			props.amount = cleanPlaceholder(match[2].trim());
+			props.amountOutcome = cleanPlaceholder(match[3].trim());
+		} else {
+			props.actionWords = cleanPlaceholder(taskName.trim());
+		}
+	}
+
+	return props;
+}
+
+/**
+ * Generate task name from properties using format template
+ */
+function generateTaskName(props: TaskProperties, format: string): string {
+	// Strip any emoji prefix from the format (emojis are added by task type)
+	let result = format.replace(/^[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}◻️✅📅❌]\s*/u, '');
+	
+	
+	// Replace date/time placeholders (for scheduled tasks)
+	if (props.startDate) {
+		result = result.replace('{date}', props.startDate);
+		
+		// Build time portion
+		let timePart = '';
+		if (props.time) {
+			timePart = `at ${props.time}`;
+		}
+		result = result.replace('{time}', timePart);
+		
+		// Build range portion
+		let rangePart = '';
+		if (props.endDate) {
+			if (props.time) rangePart = ' - ';
+			rangePart += props.endDate;
+		}
+		result = result.replace('{range}', rangePart);
+	} else {
+		// Remove date/time/range placeholders if not present
+		result = result.replace('{date}', '');
+		result = result.replace('{time}', '');
+		result = result.replace('{range}', '');
+	}
+	
+	// Replace action/amount/outcome placeholders
+	result = result.replace('{action}', props.actionWords);
+	result = result.replace('{amount}', props.amount);
+	result = result.replace('{outcome}', props.amountOutcome);
+
+	// Remove any remaining placeholders (e.g., if a value was left empty)
+	result = result.replace(/\{[^}]+\}/g, '');
+
+	// Remove empty parentheses (when time/range are not present)
+	result = result.replace(/\(\s*\)/g, '');
+	
+	// Remove spaces before closing paren or comma
+	result = result.replace(/\s+([,)])/g, '$1');
+	
+	// Clean up repeated dashes and spaces after placeholder removal
+	result = result.replace(/-\s*-\s*/g, '-');
+	result = result.replace(/\s+/g, ' ').trim();
+	
+	return result;
+}
+
+/**
+ * Validate format template for duplicate placeholders
+ * Returns error message if invalid, empty string if valid
+ */
+function validateFormatTemplate(format: string): string {
+	const regex = /\{(\w+)\}/g;
+	const placeholders: string[] = [];
+	const duplicates: string[] = [];
+	
+	let match;
+	while ((match = regex.exec(format)) !== null) {
+		const placeholder = match[1];
+		if (placeholders.includes(placeholder)) {
+			if (!duplicates.includes(placeholder)) {
+				duplicates.push(placeholder);
+			}
+		} else {
+			placeholders.push(placeholder);
+		}
+	}
+	
+	if (duplicates.length > 0) {
+		return `Duplicate placeholders found: {${duplicates.join('}, {')}}`;
+	}
+	
+	return '';
+}
+
+/**
+ * Extract field labels from a format template
+ * Returns object with field names (action, amount, outcome)
+ */
+function extractFieldLabels(format: string): { action: string, amount: string, outcome: string } {
+	const labels = { action: 'Action', amount: 'Amount', outcome: 'Outcome' };
+	
+	// Match patterns like {fieldname} and extract the field names
+	const regex = /\{(\w+)\}/g;
+	const matches = [...format.matchAll(regex)];
+	
+	// Filter to only action/amount/outcome placeholders and get first occurrence of each
+	const foundLabels = { action: '', amount: '', outcome: '' };
+	const usedPlaceholders: string[] = [];
+	
+	for (const match of matches) {
+		const placeholder = match[1];
+		// Skip if already used or if it's a date/time/range placeholder
+		if (usedPlaceholders.includes(placeholder) || ['date', 'time', 'range'].includes(placeholder)) {
+			continue;
+		}
+		
+		// Map to one of our three slots in order
+		if (!foundLabels.action) {
+			foundLabels.action = placeholder;
+			usedPlaceholders.push(placeholder);
+		} else if (!foundLabels.amount) {
+			foundLabels.amount = placeholder;
+			usedPlaceholders.push(placeholder);
+		} else if (!foundLabels.outcome) {
+			foundLabels.outcome = placeholder;
+			usedPlaceholders.push(placeholder);
+			break; // We have all three
+		}
+	}
+	
+	// Capitalize and assign
+	if (foundLabels.action) {
+		labels.action = foundLabels.action.charAt(0).toUpperCase() + foundLabels.action.slice(1);
+	}
+	if (foundLabels.amount) {
+		labels.amount = foundLabels.amount.charAt(0).toUpperCase() + foundLabels.amount.slice(1);
+	}
+	if (foundLabels.outcome) {
+		labels.outcome = foundLabels.outcome.charAt(0).toUpperCase() + foundLabels.outcome.slice(1);
+	}
+	
+	return labels;
+}
+
+/**
+ * Modal for creating/converting tasks with property inputs
+ */
+class TaskPropertiesModal extends Modal {
+	private emoji: string;
+	private isEvent: boolean;
+	private originalName: string;
+	private onSubmit: (props: TaskProperties) => void;
+	private settings: TaskNotesSettings;
+
+	constructor(app: App, emoji: string, originalName: string, settings: TaskNotesSettings, onSubmit: (props: TaskProperties) => void) {
+		super(app);
+		this.emoji = emoji;
+		this.isEvent = emoji === TASK_EMOJIS.SCHEDULED;
+		this.originalName = originalName;
+		this.settings = settings;
+		this.onSubmit = onSubmit;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+
+		contentEl.createEl('h2', { text: 'Create Task' });
+		
+		// Show original name
+		if (this.originalName) {
+			const originalNameEl = contentEl.createDiv({ cls: 'task-modal-original-name' });
+			originalNameEl.createEl('strong', { text: 'Original: ' });
+			originalNameEl.createSpan({ text: this.originalName });
+		}
+
+		const form = contentEl.createEl('form');
+		form.style.display = 'flex';
+		form.style.flexDirection = 'column';
+		form.style.gap = '12px';
+		form.style.marginTop = '16px';
+
+		// Date inputs (only for events)
+		let startDateInput: HTMLInputElement | null = null;
+		let timeInput: HTMLInputElement | null = null;
+		let endDateInput: HTMLInputElement | null = null;
+
+		if (this.isEvent) {
+			const dateGroup = form.createDiv({ cls: 'task-modal-input-group' });
+			dateGroup.createEl('label', { text: 'Start Date:' });
+			const dateWrapper = dateGroup.createDiv({ cls: 'task-modal-date-wrapper' });
+			startDateInput = dateWrapper.createEl('input', { type: 'date' });
+			startDateInput.required = true;
+			startDateInput.style.width = '100%';
+			startDateInput.style.padding = '6px';
+			startDateInput.placeholder = '';
+
+			const timeGroup = form.createDiv({ cls: 'task-modal-input-group' });
+			timeGroup.createEl('label', { text: 'Time (optional):' });
+			const timeWrapper = timeGroup.createDiv({ cls: 'task-modal-time-wrapper' });
+			timeInput = timeWrapper.createEl('input', { type: 'time' });
+			timeInput.style.width = '100%';
+			timeInput.style.padding = '6px';
+			timeInput.placeholder = '';
+
+			const endDateGroup = form.createDiv({ cls: 'task-modal-input-group' });
+			endDateGroup.createEl('label', { text: 'End Date (optional):' });
+			const endDateWrapper = endDateGroup.createDiv({ cls: 'task-modal-date-wrapper' });
+			endDateInput = endDateWrapper.createEl('input', { type: 'date' });
+			endDateInput.style.width = '100%';
+			endDateInput.style.padding = '6px';
+			endDateInput.placeholder = '';
+		}
+
+		// Get dynamic labels based on format
+		let format = this.settings.uncheckedTaskFormat;
+		if (this.emoji === TASK_EMOJIS.SCHEDULED) {
+			format = this.settings.scheduledTaskFormat;
+		} else if (this.emoji === TASK_EMOJIS.CHECKED) {
+			format = this.settings.completedTaskFormat;
+		} else if (this.emoji === TASK_EMOJIS.UNIMPORTANT) {
+			format = this.settings.cancelledTaskFormat;
+		}
+		const labels = extractFieldLabels(format);
+
+		// Action words input
+		const actionGroup = form.createDiv({ cls: 'task-modal-input-group' });
+		actionGroup.createEl('label', { text: labels.action + ':' });
+		const actionInput = actionGroup.createEl('input', { type: 'text' });
+		actionInput.placeholder = 'e.g., Buy, Finish, Complete';
+		actionInput.required = true;
+		actionInput.style.width = '100%';
+		actionInput.style.padding = '6px';
+
+		// Amount input
+		const amountGroup = form.createDiv({ cls: 'task-modal-input-group' });
+		amountGroup.createEl('label', { text: labels.amount + ':' });
+		const amountInput = amountGroup.createEl('input', { type: 'text' });
+		amountInput.placeholder = 'e.g., 3, 5 items, 2 hours';
+		amountInput.required = true;
+		amountInput.style.width = '100%';
+		amountInput.style.padding = '6px';
+
+		// Outcome input
+		const outcomeGroup = form.createDiv({ cls: 'task-modal-input-group' });
+		outcomeGroup.createEl('label', { text: labels.outcome + ':' });
+		const outcomeInput = outcomeGroup.createEl('input', { type: 'text' });
+		outcomeInput.placeholder = 'e.g., groceries, report, project';
+		outcomeInput.required = true;
+		outcomeInput.style.width = '100%';
+		outcomeInput.style.padding = '6px';
+
+		// Buttons
+		const buttonGroup = form.createDiv();
+		buttonGroup.style.display = 'flex';
+		buttonGroup.style.gap = '8px';
+		buttonGroup.style.justifyContent = 'flex-end';
+		buttonGroup.style.marginTop = '8px';
+
+		const cancelBtn = buttonGroup.createEl('button', { text: 'Cancel', type: 'button' });
+		cancelBtn.style.padding = '6px 16px';
+		cancelBtn.addEventListener('click', () => this.close());
+
+		const submitBtn = buttonGroup.createEl('button', { text: 'Create', type: 'submit' });
+		submitBtn.style.padding = '6px 16px';
+		submitBtn.style.background = 'var(--interactive-accent)';
+		submitBtn.style.color = 'var(--text-on-accent)';
+		submitBtn.style.border = 'none';
+		submitBtn.style.borderRadius = '4px';
+		submitBtn.style.cursor = 'pointer';
+
+		form.addEventListener('submit', (e) => {
+			e.preventDefault();
+
+			const props: TaskProperties = {
+				actionWords: actionInput.value.trim(),
+				amount: amountInput.value.trim(),
+				amountOutcome: outcomeInput.value.trim()
+			};
+
+			if (this.isEvent && startDateInput) {
+				props.startDate = startDateInput.value;
+				if (timeInput && timeInput.value) {
+					const [hours, minutes] = timeInput.value.split(':');
+					props.time = `${hours}.${minutes}h`;
+				}
+				if (endDateInput && endDateInput.value) {
+					props.endDate = endDateInput.value;
+				}
+			}
+
+			this.onSubmit(props);
+			this.close();
+		});
+
+		// Focus first input
+		if (this.isEvent && startDateInput) {
+			startDateInput.focus();
+		} else {
+			actionInput.focus();
+		}
+	}
+
+	onClose() {
+		const { contentEl } = this;
+		contentEl.empty();
+	}
+}
 
 export default class TaskNotesPlugin extends Plugin {
 	private titleCheckboxObserver: MutationObserver | null = null;
@@ -250,6 +645,251 @@ export default class TaskNotesPlugin extends Plugin {
 	}
 
 	/**
+	 * Create property input fields for task properties
+	 */
+	private createPropertyInputs(file: TFile, emoji: string): HTMLElement {
+		const container = document.createElement('div');
+		container.className = 'task-notes-property-inputs';
+		container.setAttribute('data-task-path', file.path);
+
+		const match = file.basename.match(TASK_EMOJI_REGEX);
+		if (!match) {
+			return container;
+		}
+
+		const taskName = match[2];
+		const isEvent = emoji === TASK_EMOJIS.SCHEDULED;
+		const props = parseTaskProperties(taskName, isEvent);
+
+		// Create input fields
+		const inputsContainer = document.createElement('div');
+		inputsContainer.className = 'task-notes-inputs-container';
+
+		// Date inputs (only for events)
+		if (isEvent) {
+			const dateContainer = document.createElement('div');
+			dateContainer.className = 'task-notes-input-group';
+
+			const startDateLabel = document.createElement('label');
+			startDateLabel.textContent = 'Date: ';
+			startDateLabel.className = 'task-notes-label';
+
+			const startDateInput = document.createElement('input');
+			startDateInput.type = 'date';
+			startDateInput.className = 'task-notes-date-input';
+			startDateInput.value = props.startDate || '';
+			startDateInput.required = true;
+
+			dateContainer.appendChild(startDateLabel);
+			dateContainer.appendChild(startDateInput);
+
+			// Time input - place right after start date
+			const timeLabel = document.createElement('label');
+			timeLabel.textContent = ' at ';
+			timeLabel.className = 'task-notes-label';
+
+			const timeInput = document.createElement('input');
+			timeInput.type = 'time';
+			timeInput.className = 'task-notes-time-input';
+			
+			// Convert HH.MMh format to HH:MM for time input
+			if (props.time) {
+				const timeMatch = props.time.match(/(\d{2})\.(\d{2})h/);
+				if (timeMatch) {
+					timeInput.value = `${timeMatch[1]}:${timeMatch[2]}`;
+				}
+			}
+
+			dateContainer.appendChild(timeLabel);
+			dateContainer.appendChild(timeInput);
+
+			// End date input for range - place after time
+			const endDateLabel = document.createElement('label');
+			endDateLabel.textContent = ' to ';
+			endDateLabel.className = 'task-notes-label';
+
+			const endDateInput = document.createElement('input');
+			endDateInput.type = 'date';
+			endDateInput.className = 'task-notes-date-input';
+			endDateInput.value = props.endDate || '';
+
+			dateContainer.appendChild(endDateLabel);
+			dateContainer.appendChild(endDateInput);
+
+			inputsContainer.appendChild(dateContainer);
+		}
+
+		// Get dynamic labels based on format
+		let format = this.settings.uncheckedTaskFormat;
+		if (emoji === TASK_EMOJIS.SCHEDULED) {
+			format = this.settings.scheduledTaskFormat;
+		} else if (emoji === TASK_EMOJIS.CHECKED) {
+			format = this.settings.completedTaskFormat;
+		} else if (emoji === TASK_EMOJIS.UNIMPORTANT) {
+			format = this.settings.cancelledTaskFormat;
+		}
+		const labels = extractFieldLabels(format);
+
+		// Action words input
+		const actionContainer = document.createElement('div');
+		actionContainer.className = 'task-notes-input-group';
+
+		const actionLabel = document.createElement('label');
+		actionLabel.textContent = labels.action + ': ';
+		actionLabel.className = 'task-notes-label';
+
+		const actionInput = document.createElement('input');
+		actionInput.type = 'text';
+		actionInput.className = 'task-notes-text-input';
+		actionInput.placeholder = labels.action;
+		actionInput.value = props.actionWords;
+
+		actionContainer.appendChild(actionLabel);
+		actionContainer.appendChild(actionInput);
+		inputsContainer.appendChild(actionContainer);
+
+		// Amount input
+		const amountContainer = document.createElement('div');
+		amountContainer.className = 'task-notes-input-group';
+
+		const amountLabel = document.createElement('label');
+		amountLabel.textContent = labels.amount + ': ';
+		amountLabel.className = 'task-notes-label';
+
+		const amountInput = document.createElement('input');
+		amountInput.type = 'text';
+		amountInput.className = 'task-notes-text-input';
+		amountInput.placeholder = labels.amount;
+		amountInput.value = props.amount;
+
+		amountContainer.appendChild(amountLabel);
+		amountContainer.appendChild(amountInput);
+		inputsContainer.appendChild(amountContainer);
+
+		// Amount outcome input
+		const outcomeContainer = document.createElement('div');
+		outcomeContainer.className = 'task-notes-input-group';
+
+		const outcomeLabel = document.createElement('label');
+		outcomeLabel.textContent = labels.outcome + ': ';
+		outcomeLabel.className = 'task-notes-label';
+
+		const outcomeInput = document.createElement('input');
+		outcomeInput.type = 'text';
+		outcomeInput.className = 'task-notes-text-input';
+		outcomeInput.placeholder = labels.outcome;
+		outcomeInput.value = props.amountOutcome;
+
+		outcomeContainer.appendChild(outcomeLabel);
+		outcomeContainer.appendChild(outcomeInput);
+		inputsContainer.appendChild(outcomeContainer);
+
+		container.appendChild(inputsContainer);
+
+		// Add apply button for text/date inputs; checkbox updates immediately elsewhere
+		const applyBtn = document.createElement('button');
+		applyBtn.type = 'button';
+		applyBtn.textContent = 'Apply';
+		applyBtn.className = 'task-notes-apply-btn';
+		applyBtn.addEventListener('click', async () => {
+			await this.handlePropertyInputChange(file, emoji, container);
+		});
+		container.appendChild(applyBtn);
+
+		return container;
+	}
+
+	/**
+	 * Handle property input changes and update file
+	 */
+	private async handlePropertyInputChange(file: TFile, emoji: string, container: HTMLElement) {
+		const match = file.basename.match(TASK_EMOJI_REGEX);
+		if (!match) {
+			return;
+		}
+
+		const isEvent = emoji === TASK_EMOJIS.SCHEDULED;
+
+		// Collect values from inputs
+		const inputs = container.querySelectorAll('input');
+		let startDate = '';
+		let endDate = '';
+		let time = '';
+		let actionWords = '';
+		let amount = '';
+		let amountOutcome = '';
+
+		let inputIndex = 0;
+
+		if (isEvent) {
+			// Date inputs (0: startDate, 1: time, 2: endDate)
+			const startDateInput = inputs[inputIndex++] as HTMLInputElement;
+			const timeInput = inputs[inputIndex++] as HTMLInputElement;
+			const endDateInput = inputs[inputIndex++] as HTMLInputElement;
+
+			startDate = startDateInput.value;
+			endDate = endDateInput.value;
+
+			// Convert HH:MM to HH.MMh format
+			if (timeInput.value) {
+				const [hours, minutes] = timeInput.value.split(':');
+				time = `${hours}.${minutes}h`;
+			}
+		}
+
+		// Action, amount, outcome inputs
+		const actionInput = inputs[inputIndex++] as HTMLInputElement;
+		const amountInput = inputs[inputIndex++] as HTMLInputElement;
+		const outcomeInput = inputs[inputIndex++] as HTMLInputElement;
+
+		actionWords = actionInput.value;
+		amount = amountInput.value;
+		amountOutcome = outcomeInput.value;
+
+		// Validate required fields
+		if (!actionWords || !amount || !amountOutcome) {
+			new Notice('Please fill in all required fields');
+			return;
+		}
+
+		if (isEvent && !startDate) {
+			new Notice('Event date is required');
+			return;
+		}
+
+		// Generate new task name
+		const props: TaskProperties = {
+			actionWords,
+			amount,
+			amountOutcome,
+			startDate: isEvent ? startDate : undefined,
+			endDate: isEvent && endDate ? endDate : undefined,
+			time: isEvent && time ? time : undefined
+		};
+
+		// Get the appropriate format template
+		let format = this.settings.uncheckedTaskFormat;
+		if (emoji === TASK_EMOJIS.SCHEDULED) {
+			format = this.settings.scheduledTaskFormat;
+		} else if (emoji === TASK_EMOJIS.CHECKED) {
+			format = this.settings.completedTaskFormat;
+		} else if (emoji === TASK_EMOJIS.UNIMPORTANT) {
+			format = this.settings.cancelledTaskFormat;
+		}
+
+		const newTaskName = generateTaskName(props, format);
+		const newName = `${emoji} ${newTaskName}`;
+		const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
+
+		try {
+			await this.app.fileManager.renameFile(file, newPath);
+		} catch (error) {
+			new Notice(`Failed to update task: ${error.message}`);
+			console.error('Error updating task properties:', error);
+		}
+	}
+
+	/**
 	 * Create a checkbox element
 	 */
 	private createCheckbox(emoji: string, interactive: boolean = true, fileForMenu?: TFile): HTMLElement {
@@ -286,8 +926,23 @@ export default class TaskNotesPlugin extends Plugin {
 	 * Update the title checkbox for the currently active file
 	 */
 	private updateTitleCheckbox(file: TFile | null) {
-		// Remove existing checkbox and observer
-		this.removeTitleCheckbox();
+		// Find the footer in the current active leaf
+		const activeLeaf = this.app.workspace.activeLeaf;
+		if (!activeLeaf) {
+			return;
+		}
+
+		const viewContent = activeLeaf.view.containerEl.querySelector('.view-content') as HTMLElement | null;
+		if (!viewContent) {
+			return;
+		}
+
+		// Clear existing wrappers in footer
+		const footer = viewContent.querySelector('.task-notes-footer');
+		if (footer) {
+			const wrappers = footer.querySelectorAll('.task-notes-title-wrapper');
+			wrappers.forEach(w => w.remove());
+		}
 
 		if (!file) {
 			return;
@@ -299,11 +954,10 @@ export default class TaskNotesPlugin extends Plugin {
 		}
 
 		const [, emoji] = match;
-		const titleEl = this.getTitleElement();
-		
-		if (!titleEl) {
-			return;
-		}
+
+		// Create wrapper for checkbox and inputs in footer
+		const wrapper = document.createElement('div');
+		wrapper.className = 'task-notes-title-wrapper';
 
 		// Create and insert checkbox
 		const checkbox = this.createCheckbox(emoji, true, file);
@@ -326,58 +980,60 @@ export default class TaskNotesPlugin extends Plugin {
 			this.showContextMenuForFile(file, e, emoji, true);
 		});
 
-		titleEl.insertBefore(checkbox, titleEl.firstChild);
+		wrapper.appendChild(checkbox);
 
-		// Set up mutation observer to watch for title changes
-		this.setupTitleObserver(file);
+		// Create property inputs for task-type items
+		const propertyInputs = this.createPropertyInputs(file, emoji);
+		wrapper.appendChild(propertyInputs);
+
+		// Place entire wrapper in the footer (fixed under note body)
+		const footerContainer = this.getFooterContainer();
+		if (footerContainer) {
+			footerContainer.appendChild(wrapper);
+		}
 	}
 
 	/**
-	 * Set up MutationObserver to watch for title DOM changes
+	 * Get a fixed footer container at the bottom of the note view
 	 */
-	private setupTitleObserver(file: TFile) {
-		const titleEl = this.getTitleElement();
-		if (!titleEl) {
-			return;
+	private getFooterContainer(): HTMLElement | null {
+		// Target the active markdown view's container
+		const activeLeaf = this.app.workspace.activeLeaf;
+		if (!activeLeaf) {
+			console.log('Task Notes: No active leaf found');
+			return null;
 		}
 
-		this.titleCheckboxObserver = new MutationObserver(() => {
-			// Check if checkbox still exists
-			const existingCheckbox = titleEl.querySelector('.task-notes-checkbox');
-			if (!existingCheckbox) {
-				// Checkbox was removed, re-add it
-				this.updateTitleCheckbox(file);
-			}
-		});
+		const viewContent = activeLeaf.view.containerEl.querySelector('.view-content') as HTMLElement | null;
+		if (!viewContent) {
+			console.log('Task Notes: No view-content found');
+			return null;
+		}
 
-		this.titleCheckboxObserver.observe(titleEl, {
-			childList: true,
-			subtree: false
-		});
+		let container = viewContent.querySelector('.task-notes-footer') as HTMLElement;
+		if (!container) {
+			container = document.createElement('div');
+			container.className = 'task-notes-footer';
+			viewContent.appendChild(container);
+			console.log('Task Notes: Created footer container');
+		}
+
+		return container;
 	}
 
 	/**
-	 * Get the title element from the DOM
-	 */
-	private getTitleElement(): HTMLElement | null {
-		return document.querySelector('.view-header-title-container') || 
-		       document.querySelector('.inline-title');
-	}
-
-	/**
-	 * Remove the title checkbox
+	 * Remove the footer checkbox and inputs
 	 */
 	private removeTitleCheckbox() {
-		if (this.titleCheckboxObserver) {
-			this.titleCheckboxObserver.disconnect();
-			this.titleCheckboxObserver = null;
+	const footer = document.querySelector('.task-notes-footer');
+	if (footer) {
+		const wrapper = footer.querySelector('.task-notes-title-wrapper');
+		if (wrapper) {
+			wrapper.remove();
 		}
-
-		const titleEl = this.getTitleElement();
-		if (titleEl) {
-			const checkbox = titleEl.querySelector('.task-notes-checkbox');
-			if (checkbox) {
-				checkbox.remove();
+		// If footer is empty, remove it to avoid leftover space
+		if (!footer.hasChildNodes()) {
+			footer.remove();
 			}
 		}
 	}
@@ -451,7 +1107,7 @@ export default class TaskNotesPlugin extends Plugin {
 			menu.addItem(item => item.setTitle('Convert to unchecked task ◻️').setIcon('checkbox-glyph').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.UNCHECKED); }));
 			menu.addItem(item => item.setTitle('Convert to scheduled task 📅').setIcon('calendar-glyph').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.SCHEDULED); }));
 			menu.addItem(item => item.setTitle('Convert to completed task ✅').setIcon('checkmark').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.CHECKED); }));
-			menu.addItem(item => item.setTitle('Convert to unimportant ❌').setIcon('cross').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.UNIMPORTANT); }));
+			menu.addItem(item => item.setTitle('Convert to cancelled ❌').setIcon('cross').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.UNIMPORTANT); }));
 		} else {
 			const current = match[1];
 			menu.addItem(item => item.setTitle('Remove task status').setIcon('cross').onClick(async () => { await this.removeTaskEmoji(file); }));
@@ -459,8 +1115,12 @@ export default class TaskNotesPlugin extends Plugin {
 			if (current !== TASK_EMOJIS.UNCHECKED) menu.addItem(item => item.setTitle('Mark as unchecked ◻️').setIcon('checkbox-glyph').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.UNCHECKED); }));
 			if (current !== TASK_EMOJIS.SCHEDULED) menu.addItem(item => item.setTitle('Mark as scheduled 📅').setIcon('calendar-glyph').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.SCHEDULED); }));
 			if (current !== TASK_EMOJIS.CHECKED) menu.addItem(item => item.setTitle('Mark as completed ✅').setIcon('checkmark').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.CHECKED); }));
-			if (current !== TASK_EMOJIS.UNIMPORTANT) menu.addItem(item => item.setTitle('Mark as unimportant ❌').setIcon('cross').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.UNIMPORTANT); }));
+			if (current !== TASK_EMOJIS.UNIMPORTANT) menu.addItem(item => item.setTitle('Mark as cancelled ❌').setIcon('cross').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.UNIMPORTANT); }));
 		}
+
+		// Add option to use custom emoji
+		menu.addSeparator();
+		menu.addItem(item => item.setTitle('Use custom emoji').setIcon('pencil').onClick(async () => { await this.showCustomEmojiDialog(file); }));
 
 		// Show the menu at mouse position (guarded)
 		try {
@@ -469,6 +1129,115 @@ export default class TaskNotesPlugin extends Plugin {
 			console.error('Error showing menu at mouse event:', err);
 			new Notice('Failed to open menu');
 		}
+	}
+
+	/**
+	 * Show dialog for custom emoji input
+	 */
+	private async showCustomEmojiDialog(file: TFile) {
+		// Create a simple prompt for emoji
+		// Since Obsidian doesn't have built-in emoji picker, we'll just accept any text input
+		const match = file.basename.match(TASK_EMOJI_REGEX);
+		const currentEmoji = match ? match[1] : '';
+
+		const dialog = document.createElement('div');
+		dialog.className = 'task-notes-custom-emoji-dialog';
+		dialog.style.cssText = `
+			position: fixed;
+			top: 50%;
+			left: 50%;
+			transform: translate(-50%, -50%);
+			background: var(--background-secondary);
+			border: 1px solid var(--border-color);
+			border-radius: 4px;
+			padding: 16px;
+			z-index: 10000;
+			box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+		`;
+
+		const label = document.createElement('label');
+		label.textContent = 'Enter emoji or custom text (e.g., 🎯, ⚡, or any text):';
+		label.style.cssText = 'display: block; margin-bottom: 8px; font-weight: 500;';
+
+		const input = document.createElement('input');
+		input.type = 'text';
+		input.value = currentEmoji;
+		input.placeholder = 'Emoji or text';
+		input.style.cssText = `
+			width: 100%;
+			padding: 8px;
+			margin-bottom: 12px;
+			border: 1px solid var(--border-color);
+			border-radius: 4px;
+			background: var(--background-primary);
+			color: var(--text-normal);
+			box-sizing: border-box;
+		`;
+
+		const buttonsContainer = document.createElement('div');
+		buttonsContainer.style.cssText = 'display: flex; gap: 8px; justify-content: flex-end;';
+
+		const cancelBtn = document.createElement('button');
+		cancelBtn.textContent = 'Cancel';
+		cancelBtn.className = 'mod-cta';
+		cancelBtn.style.cssText = `
+			padding: 6px 12px;
+			cursor: pointer;
+		`;
+		cancelBtn.addEventListener('click', () => dialog.remove());
+
+		const okBtn = document.createElement('button');
+		okBtn.textContent = 'OK';
+		okBtn.className = 'mod-cta';
+		okBtn.style.cssText = `
+			padding: 6px 12px;
+			cursor: pointer;
+		`;
+		okBtn.addEventListener('click', async () => {
+			const newEmoji = input.value.trim();
+			if (!newEmoji) {
+				new Notice('Please enter an emoji or text');
+				return;
+			}
+
+			dialog.remove();
+
+			// Update task with new emoji
+			if (match) {
+				await this.changeTaskStatus(file, newEmoji);
+			} else {
+				await this.convertToTask(file, newEmoji);
+			}
+		});
+
+		buttonsContainer.appendChild(cancelBtn);
+		buttonsContainer.appendChild(okBtn);
+
+		dialog.appendChild(label);
+		dialog.appendChild(input);
+		dialog.appendChild(buttonsContainer);
+
+		document.body.appendChild(dialog);
+		input.focus();
+
+		// Allow Enter key to submit
+		input.addEventListener('keypress', async (e) => {
+			if (e.key === 'Enter') {
+				const newEmoji = input.value.trim();
+				if (!newEmoji) {
+					new Notice('Please enter an emoji or text');
+					return;
+				}
+
+				dialog.remove();
+
+				if (match) {
+					await this.changeTaskStatus(file, newEmoji);
+				} else {
+					await this.convertToTask(file, newEmoji);
+				}
+			}
+		});
 	}
 
 	/**
@@ -678,33 +1447,46 @@ export default class TaskNotesPlugin extends Plugin {
 	 * Convert a regular file to a task by adding emoji prefix
 	 */
 	private async convertToTask(file: TFile, emoji: string) {
-		const newName = `${emoji} ${file.basename}`;
-		const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
-
-		try {
-			console.debug('=== Starting conversion ===');
-			console.debug('Original file path:', file.path);
-			console.debug('Original file basename:', file.basename);
-			console.debug('New name:', newName);
-			console.debug('New path:', newPath);
-			console.debug('File parent:', file.parent?.path || 'no parent');
-			
-			// Apply template before renaming if enabled
-			if (this.settings.applyTemplateOnConvert) {
-				console.debug('Applying template before rename...');
-				await this.applyTemplateToFile(file, emoji, true);
+		new TaskPropertiesModal(this.app, emoji, file.basename, this.settings, async (props) => {
+			// Get the appropriate format template
+			let format = this.settings.uncheckedTaskFormat;
+			if (emoji === TASK_EMOJIS.SCHEDULED) {
+				format = this.settings.scheduledTaskFormat;
+			} else if (emoji === TASK_EMOJIS.CHECKED) {
+				format = this.settings.completedTaskFormat;
+			} else if (emoji === TASK_EMOJIS.UNIMPORTANT) {
+				format = this.settings.cancelledTaskFormat;
 			}
 			
-			// Then rename the file
-			console.debug('Renaming file...');
-			await this.app.fileManager.renameFile(file, newPath);
-			console.debug('File renamed successfully');
-			
-			new Notice(`Converted to task: ${newName}`);
-		} catch (error) {
-			new Notice(`Failed to convert file: ${error.message}`);
-			console.error('Error converting file:', error);
-		}
+			const taskName = generateTaskName(props, format);
+			const newName = `${emoji} ${taskName}`;
+			const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
+
+			try {
+				console.debug('=== Starting conversion ===');
+				console.debug('Original file path:', file.path);
+				console.debug('Original file basename:', file.basename);
+				console.debug('New name:', newName);
+				console.debug('New path:', newPath);
+				console.debug('File parent:', file.parent?.path || 'no parent');
+				
+				// Apply template before renaming if enabled
+				if (this.settings.applyTemplateOnConvert) {
+					console.debug('Applying template before rename...');
+					await this.applyTemplateToFile(file, emoji, true);
+				}
+				
+				// Then rename the file
+				console.debug('Renaming file...');
+				await this.app.fileManager.renameFile(file, newPath);
+				console.debug('File renamed successfully');
+				
+				new Notice(`Converted to task: ${newName}`);
+			} catch (error) {
+				new Notice(`Failed to convert file: ${error.message}`);
+				console.error('Error converting file:', error);
+			}
+		}).open();
 	}
 
 	/**
@@ -924,6 +1706,103 @@ class TaskNotesSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
+
+		// Task name format configuration
+		new Setting(containerEl).setName('Task name formats').setHeading();
+		new Setting(containerEl).setDesc('Customize how task names are formatted. Available placeholders: {action}, {amount}, {outcome}, {date}, {time}, {range}');
+
+		new Setting(containerEl)
+			.setName('Unchecked task format (◻️)')
+			.setDesc('Format for unchecked tasks (emoji is added automatically, do not include it)')
+			.addText(text => {
+				text
+					.setPlaceholder('{action} - {amount} - {outcome}')
+					.setValue(this.plugin.settings.uncheckedTaskFormat)
+					.onChange(async (value) => {
+						const error = validateFormatTemplate(value);
+						if (error) {
+							new Notice('Invalid format: ' + error);
+							text.setValue(this.plugin.settings.uncheckedTaskFormat);
+							return;
+						}
+						this.plugin.settings.uncheckedTaskFormat = value;
+						await this.plugin.saveSettings();
+					});
+				text.inputEl.addClass('task-notes-input-fullwidth');
+			});
+
+		new Setting(containerEl)
+			.setName('Scheduled task format (📅)')
+			.setDesc('Format for scheduled tasks. Use {date} for start date, {time} for time, {range} for end date (emoji is added automatically, do not include it)')
+			.addText(text => {
+				text
+					.setPlaceholder('By {date} (at {time} - {range}), {action} - {amount} - {outcome}')
+					.setValue(this.plugin.settings.scheduledTaskFormat)
+					.onChange(async (value) => {
+						const error = validateFormatTemplate(value);
+						if (error) {
+							new Notice('Invalid format: ' + error);
+							text.setValue(this.plugin.settings.scheduledTaskFormat);
+							return;
+						}
+						this.plugin.settings.scheduledTaskFormat = value;
+						await this.plugin.saveSettings();
+					});
+				text.inputEl.addClass('task-notes-input-fullwidth');
+			});
+
+		new Setting(containerEl)
+			.setName('Completed task format (✅)')
+			.setDesc('Format for completed tasks (emoji is added automatically, do not include it)')
+			.addText(text => {
+				text
+					.setPlaceholder('{action} - {amount} - {outcome}')
+					.setValue(this.plugin.settings.completedTaskFormat)
+					.onChange(async (value) => {
+						const error = validateFormatTemplate(value);
+						if (error) {
+							new Notice('Invalid format: ' + error);
+							text.setValue(this.plugin.settings.completedTaskFormat);
+							return;
+						}
+						this.plugin.settings.completedTaskFormat = value;
+						await this.plugin.saveSettings();
+					});
+				text.inputEl.addClass('task-notes-input-fullwidth');
+			});
+
+		new Setting(containerEl)
+			.setName('Cancelled task format (❌)')
+			.setDesc('Format for cancelled tasks (emoji is added automatically, do not include it)')
+			.addText(text => {
+				text
+					.setPlaceholder('{action} - {amount} - {outcome}')
+					.setValue(this.plugin.settings.cancelledTaskFormat)
+					.onChange(async (value) => {
+						const error = validateFormatTemplate(value);
+						if (error) {
+							new Notice('Invalid format: ' + error);
+							text.setValue(this.plugin.settings.cancelledTaskFormat);
+							return;
+						}
+						this.plugin.settings.cancelledTaskFormat = value;
+						await this.plugin.saveSettings();
+					});
+				text.inputEl.addClass('task-notes-input-fullwidth');
+			});
+
+		// Apply button for format settings
+		new Setting(containerEl)
+			.addButton(button => button
+				.setButtonText('Apply Format Changes')
+				.setCta()
+				.onClick(async () => {
+					await this.plugin.saveSettings();
+					new Notice('Format settings saved! The new formats will apply to newly created/edited tasks.');
+				}));
+
+		// Template application settings
+		new Setting(containerEl).setName('Template settings').setHeading();
 
 		// Enable/disable template application
 		new Setting(containerEl)

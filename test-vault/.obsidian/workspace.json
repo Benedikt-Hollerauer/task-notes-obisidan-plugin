@@ -4,21 +4,21 @@
     "type": "split",
     "children": [
       {
-        "id": "8ea0fe689e16228f",
+        "id": "60de23f597dd20b2",
         "type": "tabs",
         "children": [
           {
-            "id": "862cb8eb8e998531",
+            "id": "9d8c3ed302067d19",
             "type": "leaf",
             "state": {
               "type": "markdown",
               "state": {
-                "file": "✅ Buy groceries test.md",
+                "file": "◻️ By 2026-01-22(at 00.24h) test - 1 - afsdadf.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "✅ Buy groceries test"
+              "title": "◻️ By 2026-01-22(at 00.24h) test - 1 - afsdadf"
             }
           }
         ]
@@ -78,7 +78,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300
+    "width": 305.5
   },
   "right": {
     "id": "f903d548c779cd39",
@@ -94,7 +94,6 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "◻️ Buy groceries.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +103,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for ◻️ Buy groceries"
+              "title": "Backlinks"
             }
           },
           {
@@ -113,12 +112,11 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "◻️ Buy groceries.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from ◻️ Buy groceries"
+              "title": "Outgoing links"
             }
           },
           {
@@ -156,13 +154,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "◻️ Buy groceries.md",
+                "file": "By 2222-02-22, 2 - 2 - 2.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of ◻️ Buy groceries"
+              "title": "Outline of By 2222-02-22, 2 - 2 - 2"
             }
           }
         ]
@@ -183,12 +181,16 @@
       "bases:Create new base": false
     }
   },
-  "active": "862cb8eb8e998531",
+  "active": "ca1e6720f55302af",
   "lastOpenFiles": [
-    "✅ Finish project report.md",
-    "✅ Buy groceries test.md",
+    "◻️ By 2026-01-22(at 00.24h) test - 1 - afsdadf.md",
+    "✅ By 2026-01-13 , moin - 2026 - 01-14, buy - 2 - thing.md",
+    "✅ test - 1 - test.md",
+    "✅ Finish project report - fd - sfadsdf.md",
+    "✅ f - df - f.md",
+    "By 2222-02-22, 2 - 2 - 2.md",
+    "◻️ test - 1 - test.md",
     "test/template.md",
-    "✅ Regular Note.md",
     "test/README.md",
     "test",
     "✅ Buy groceries",

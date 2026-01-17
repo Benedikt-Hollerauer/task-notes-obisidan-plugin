@@ -1,16 +1,138 @@
 /* Minimal styling so checkboxes follow theme like note body */
 .task-notes-checkbox {
-    margin-right: 0.35em;
+    margin-right: 8px;
     vertical-align: middle;
+    cursor: pointer;
 }
 
-/* Full width inputs in settings */
-.task-notes-input-fullwidth {
+/* Title wrapper - now for bottom section */
+.task-notes-title-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    flex-wrap: wrap;
     width: 100%;
 }
 
-/* Suggestion dropdown for template picker */
-.suggestion-container {
+/* Footer panel for task inputs - fixed under the note body */
+.task-notes-footer {
+    position: fixed;
+    bottom: 30px;
+    left: 0;
+    right: 0;
+    width: 100%;
+    border-top: 1px solid var(--background-modifier-border);
+    padding: 8px 12px;
+    background: var(--background-primary);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.12);
+    z-index: 9999;
+    margin-top: auto;
+}
+
+/* Property inputs container - use grid for better layout */
+.task-notes-property-inputs {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    align-items: center;
+    width: 100%;
+}
+
+.task-notes-inputs-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 8px;
+    width: 100%;
+}
+
+.task-notes-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+}
+
+.task-notes-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: capitalize;
+    letter-spacing: 0.3px;
+    line-height: 1;
+    margin: 0;
+    padding: 0;
+}
+
+.task-notes-text-input,
+.task-notes-date-input,
+.task-notes-time-input {
+    padding: 5px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    font-size: 0.75rem;
+    font-family: var(--font-interface);
+    width: 100%;
+    transition: all 0.2s ease;
+    height: 28px;
+    box-sizing: border-box;
+    margin: 0;
+}
+
+.task-notes-date-input,
+.task-notes-time-input {
+    font-size: 0.7rem;
+}
+
+.task-notes-text-input:hover,
+.task-notes-date-input:hover,
+.task-notes-time-input:hover {
+    border-color: var(--background-modifier-border-hover);
+    background: var(--background-secondary-alt);
+}
+
+.task-notes-text-input:focus,
+.task-notes-date-input:focus,
+.task-notes-time-input:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+    background: var(--background-primary);
+    box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.1);
+}
+
+.task-notes-apply-btn {
+    padding: 5px 14px;
+    border: none;
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    box-shadow: 0 2px 6px rgba(var(--interactive-accent-rgb), 0.2);
+    height: 28px;
+    display: flex;
+    align-items: center;
+    margin: 0;
+}
+
+.task-notes-apply-btn:hover {
+    background: var(--interactive-accent-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 3px 10px rgba(var(--interactive-accent-rgb), 0.3);
+}
+
+.task-notes-apply-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(var(--interactive-accent-rgb), 0.2);
+}
+
+/* Suggestion container */
     position: absolute;
     background: var(--background-primary);
     border: 1px solid var(--background-modifier-border);
@@ -29,4 +151,141 @@
 
 .suggestion-item.selected {
     background: var(--background-modifier-hover);
+}
+
+/* Task properties modal styling */
+.modal {
+    z-index: 1001 !important;
+}
+
+.modal-bg {
+    z-index: 1000 !important;
+}
+
+.task-modal-original-name {
+    padding: 8px 12px;
+    background: var(--background-secondary);
+    border-radius: 4px;
+    margin-bottom: 12px;
+    font-size: 0.9em;
+}
+
+.task-modal-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.task-modal-input-group label {
+    font-weight: 500;
+    color: var(--text-muted);
+    font-size: 0.9em;
+}
+
+.task-modal-input-group input {
+    padding: 6px 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-family: var(--font-interface);
+}
+
+/* Wrapper for date inputs to reverse visual order */
+.task-modal-date-wrapper {
+    display: flex;
+    flex-direction: row-reverse;
+}
+
+.task-modal-date-wrapper input[type="date"] {
+    text-align: right;
+}
+
+/* Wrapper for time input to move picker to the left */
+.task-modal-time-wrapper {
+    display: flex;
+    flex-direction: row-reverse;
+}
+
+.task-modal-time-wrapper input[type="time"] {
+    text-align: left;
+}
+
+/* Align date and time picker icons to the right */
+.task-modal-input-group input[type="date"]::-webkit-calendar-picker-indicator,
+.task-modal-input-group input[type="time"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: 1;
+    pointer-events: auto;
+    filter: invert(0.8);
+}
+
+.task-modal-input-group input:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+    box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
+}
+
+/* Tablet responsive adjustments */
+@media (max-width: 900px) {
+    .task-notes-footer {
+        padding: 8px 10px;
+    }
+
+    .task-notes-property-inputs {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+
+    .task-notes-inputs-container {
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 6px;
+    }
+
+    .task-notes-apply-btn {
+        width: 100%;
+    }
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 600px) {
+    .task-notes-footer {
+        padding: 6px 10px;
+    }
+
+    .task-notes-property-inputs {
+        grid-template-columns: 1fr;
+        gap: 4px;
+    }
+
+    .task-notes-inputs-container {
+        grid-template-columns: 1fr;
+        gap: 4px;
+        width: 100%;
+    }
+
+    .task-notes-input-group {
+        width: 100%;
+        gap: 2px;
+    }
+
+    .task-notes-label {
+        font-size: 0.65rem;
+    }
+
+    .task-notes-text-input,
+    .task-notes-date-input,
+    .task-notes-time-input {
+        width: 100%;
+        padding: 4px 6px;
+        font-size: 0.7rem;
+        height: 24px;
+    }
+
+    .task-notes-apply-btn {
+        width: 100%;
+        padding: 4px 10px;
+        font-size: 0.7rem;
+        height: 24px;
+    }
 }
