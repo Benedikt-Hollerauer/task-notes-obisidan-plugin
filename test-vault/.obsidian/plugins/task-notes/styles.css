@@ -6,6 +6,7 @@
     flex-shrink: 0;
     width: 18px;
     height: 18px;
+    align-self: center;
 }
 
 /* Title wrapper - now for bottom section */
@@ -14,7 +15,7 @@
     align-items: flex-start;
     justify-content: flex-start;
     gap: 12px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     width: 100%;
 }
 
@@ -39,7 +40,7 @@
     display: grid;
     grid-template-columns: 1fr auto;
     gap: 12px;
-    align-items: flex-start;
+    align-items: center;
     width: 100%;
 }
 
@@ -53,7 +54,7 @@
 .task-notes-input-group {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 4px;
     flex: 1;
 }
 
@@ -122,6 +123,7 @@
     display: flex;
     align-items: center;
     margin: 0;
+    align-self: center;
 }
 
 .task-notes-apply-btn:hover {
