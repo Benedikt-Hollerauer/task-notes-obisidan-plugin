@@ -1,12 +1,5 @@
 import { App, Plugin, TFile, TAbstractFile, Menu, Notice, PluginSettingTab, Setting, normalizePath, Modal } from 'obsidian';
 
-// Item type enum
-enum ItemType {
-	TASK = '✅',
-	EVENT = '📅',
-	CANCELLED = '❌'
-}
-
 // Task properties interface
 interface TaskProperties {
 	actionWords: string;
@@ -49,7 +42,7 @@ const DEFAULT_SETTINGS: TaskNotesSettings = {
 function normalizeEmoji(emoji: string): string {
 	// Remove variation selectors and other invisible Unicode characters, but NOT regular spaces
 	// Variation selector-16 (U+FE0F) and zero-width characters
-	return emoji.replace(/[\u200b\u200c\u200d\u200e\u200f\ufeff\u061c\ufe0f]+/g, '');
+	return emoji.replace(/[\u200B-\u200F\uFEFF\u061C\uFE0F]+/g, '');
 }
 
 /**
@@ -57,7 +50,7 @@ function normalizeEmoji(emoji: string): string {
  */
 function normalizeEmojiForComparison(emoji: string): string {
 	// Remove all variation selectors and other invisible modifiers
-	return emoji.replace(/[\ufe0f\u200d\u200c\u200b\u200e\u200f\ufeff\u061c\s]+/g, '');
+	return emoji.replace(/[\u200B-\u200F\uFEFF\u061C\uFE0F\s]+/g, '');
 }
 
 // Task emoji constants
@@ -75,7 +68,7 @@ const TASK_EMOJI_REGEX = /^(◻️|◻|📅|✅|❌)\s+(.+)$/;
  */
 function cleanupTaskName(taskName: string): string {
 	// Remove invisible characters only, preserve the actual spacing
-	return taskName.replace(/[\u200b\u200c\u200d\u200e\u200f\ufeff\u061c\ufe0f]+/g, '').trim();
+	return taskName.replace(/[\u200B-\u200F\uFEFF\u061C\uFE0F]+/g, '').trim();
 }
 
 /**
@@ -307,7 +300,7 @@ class TaskPropertiesModal extends Modal {
 		const { contentEl } = this;
 		contentEl.empty();
 
-		contentEl.createEl('h2', { text: 'Create Task' });
+		contentEl.createEl('h2', { text: 'Create task' });
 		
 		// Show original name
 		if (this.originalName) {
@@ -317,10 +310,7 @@ class TaskPropertiesModal extends Modal {
 		}
 
 		const form = contentEl.createEl('form');
-		form.style.display = 'flex';
-		form.style.flexDirection = 'column';
-		form.style.gap = '12px';
-		form.style.marginTop = '16px';
+		form.addClass('task-modal-form');
 
 		// Date inputs (only for events)
 		let startDateInput: HTMLInputElement | null = null;
@@ -329,28 +319,22 @@ class TaskPropertiesModal extends Modal {
 
 		if (this.isEvent) {
 			const dateGroup = form.createDiv({ cls: 'task-modal-input-group' });
-			dateGroup.createEl('label', { text: 'Start Date:' });
+			dateGroup.createEl('label', { text: 'Start date' });
 			const dateWrapper = dateGroup.createDiv({ cls: 'task-modal-date-wrapper' });
-			startDateInput = dateWrapper.createEl('input', { type: 'date' });
+			startDateInput = dateWrapper.createEl('input', { type: 'date', cls: 'task-modal-date-input' });
 			startDateInput.required = true;
-			startDateInput.style.width = '100%';
-			startDateInput.style.padding = '6px';
 			startDateInput.placeholder = '';
 
 			const timeGroup = form.createDiv({ cls: 'task-modal-input-group' });
-			timeGroup.createEl('label', { text: 'Time (optional):' });
+			timeGroup.createEl('label', { text: 'Time (optional)' });
 			const timeWrapper = timeGroup.createDiv({ cls: 'task-modal-time-wrapper' });
-			timeInput = timeWrapper.createEl('input', { type: 'time' });
-			timeInput.style.width = '100%';
-			timeInput.style.padding = '6px';
+			timeInput = timeWrapper.createEl('input', { type: 'time', cls: 'task-modal-time-input' });
 			timeInput.placeholder = '';
 
 			const endDateGroup = form.createDiv({ cls: 'task-modal-input-group' });
-			endDateGroup.createEl('label', { text: 'End Date (optional):' });
+			endDateGroup.createEl('label', { text: 'End date (optional)' });
 			const endDateWrapper = endDateGroup.createDiv({ cls: 'task-modal-date-wrapper' });
-			endDateInput = endDateWrapper.createEl('input', { type: 'date' });
-			endDateInput.style.width = '100%';
-			endDateInput.style.padding = '6px';
+			endDateInput = endDateWrapper.createEl('input', { type: 'date', cls: 'task-modal-date-input' });
 			endDateInput.placeholder = '';
 		}
 
@@ -367,49 +351,32 @@ class TaskPropertiesModal extends Modal {
 
 		// Action words input
 		const actionGroup = form.createDiv({ cls: 'task-modal-input-group' });
-		actionGroup.createEl('label', { text: labels.action + ':' });
-		const actionInput = actionGroup.createEl('input', { type: 'text' });
+		actionGroup.createEl('label', { text: labels.action });
+		const actionInput = actionGroup.createEl('input', { type: 'text', cls: 'task-modal-text-input' });
 		actionInput.placeholder = 'e.g., Buy, Finish, Complete';
 		actionInput.required = true;
-		actionInput.style.width = '100%';
-		actionInput.style.padding = '6px';
 
 		// Amount input
 		const amountGroup = form.createDiv({ cls: 'task-modal-input-group' });
-		amountGroup.createEl('label', { text: labels.amount + ':' });
-		const amountInput = amountGroup.createEl('input', { type: 'text' });
+		amountGroup.createEl('label', { text: labels.amount });
+		const amountInput = amountGroup.createEl('input', { type: 'text', cls: 'task-modal-text-input' });
 		amountInput.placeholder = 'e.g., 3, 5 items, 2 hours';
 		amountInput.required = true;
-		amountInput.style.width = '100%';
-		amountInput.style.padding = '6px';
 
 		// Outcome input
 		const outcomeGroup = form.createDiv({ cls: 'task-modal-input-group' });
-		outcomeGroup.createEl('label', { text: labels.outcome + ':' });
-		const outcomeInput = outcomeGroup.createEl('input', { type: 'text' });
+		outcomeGroup.createEl('label', { text: labels.outcome });
+		const outcomeInput = outcomeGroup.createEl('input', { type: 'text', cls: 'task-modal-text-input' });
 		outcomeInput.placeholder = 'e.g., groceries, report, project';
 		outcomeInput.required = true;
-		outcomeInput.style.width = '100%';
-		outcomeInput.style.padding = '6px';
 
 		// Buttons
-		const buttonGroup = form.createDiv();
-		buttonGroup.style.display = 'flex';
-		buttonGroup.style.gap = '8px';
-		buttonGroup.style.justifyContent = 'flex-end';
-		buttonGroup.style.marginTop = '8px';
+		const buttonGroup = form.createDiv({ cls: 'task-modal-button-group' });
 
-		const cancelBtn = buttonGroup.createEl('button', { text: 'Cancel', type: 'button' });
-		cancelBtn.style.padding = '6px 16px';
+		const cancelBtn = buttonGroup.createEl('button', { text: 'Cancel', type: 'button', cls: 'task-modal-cancel-btn' });
 		cancelBtn.addEventListener('click', () => this.close());
 
-		const submitBtn = buttonGroup.createEl('button', { text: 'Create', type: 'submit' });
-		submitBtn.style.padding = '6px 16px';
-		submitBtn.style.background = 'var(--interactive-accent)';
-		submitBtn.style.color = 'var(--text-on-accent)';
-		submitBtn.style.border = 'none';
-		submitBtn.style.borderRadius = '4px';
-		submitBtn.style.cursor = 'pointer';
+		const submitBtn = buttonGroup.createEl('button', { text: 'Create', type: 'submit', cls: 'task-modal-submit-btn' });
 
 		form.addEventListener('submit', (e) => {
 			e.preventDefault();
@@ -456,8 +423,6 @@ export default class TaskNotesPlugin extends Plugin {
 	settings: TaskNotesSettings;
 
 	async onload() {
-		console.log('Loading Task Notes Plugin');
-
 		// Load settings
 		await this.loadSettings();
 
@@ -534,8 +499,6 @@ export default class TaskNotesPlugin extends Plugin {
 	}
 
 	onunload() {
-		console.log('Unloading Task Notes Plugin');
-		
 		// Clean up observers
 		if (this.titleCheckboxObserver) {
 			this.titleCheckboxObserver.disconnect();
@@ -639,7 +602,6 @@ export default class TaskNotesPlugin extends Plugin {
 
 		let [, emoji] = match;
 		emoji = normalizeEmoji(emoji);
-		console.log('updateFileExplorerCheckbox - extracted emoji:', match[1], 'normalized:', emoji);
 
 		// If an identical checkbox is already present, do nothing.
 		if (existingCheckbox) {
@@ -994,7 +956,6 @@ export default class TaskNotesPlugin extends Plugin {
 
 		let [, emoji] = match;
 		emoji = normalizeEmoji(emoji);
-		console.log('updateTitleCheckbox - extracted emoji:', match[1], 'normalized:', emoji);
 
 		// Create wrapper for checkbox and inputs in footer
 		const wrapper = document.createElement('div');
@@ -1041,13 +1002,11 @@ export default class TaskNotesPlugin extends Plugin {
 		// Target the active markdown view's container
 		const activeLeaf = this.app.workspace.activeLeaf;
 		if (!activeLeaf) {
-			console.log('Task Notes: No active leaf found');
 			return null;
 		}
 
 		const viewContent = activeLeaf.view.containerEl.querySelector('.view-content') as HTMLElement | null;
 		if (!viewContent) {
-			console.log('Task Notes: No view-content found');
 			return null;
 		}
 
@@ -1056,7 +1015,6 @@ export default class TaskNotesPlugin extends Plugin {
 			container = document.createElement('div');
 			container.className = 'task-notes-footer';
 			viewContent.appendChild(container);
-			console.log('Task Notes: Created footer container');
 		}
 
 		return container;
@@ -1152,7 +1110,7 @@ export default class TaskNotesPlugin extends Plugin {
 		} else {
 			let current = match[1];
 			current = normalizeEmoji(current);
-			console.log('showContextMenuForFile - extracted emoji:', match[1], 'normalized:', current);
+
 			menu.addItem(item => item.setTitle('Remove task status').setIcon('cross').onClick(async () => { await this.removeTaskEmoji(file); }));
 
 			if (current !== TASK_EMOJIS.UNCHECKED) menu.addItem(item => item.setTitle('Mark as unchecked ◻️').setIcon('checkbox-glyph').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.UNCHECKED); }));
@@ -1183,7 +1141,6 @@ export default class TaskNotesPlugin extends Plugin {
 		const match = file.basename.match(TASK_EMOJI_REGEX);
 		let currentEmoji = match ? match[1] : '';
 		currentEmoji = normalizeEmoji(currentEmoji);
-		console.log('showCustomEmojiDialog - extracted emoji:', match ? match[1] : 'none', 'normalized:', currentEmoji);
 
 		const dialog = document.createElement('div');
 		dialog.className = 'task-notes-custom-emoji-dialog';
@@ -1369,7 +1326,7 @@ export default class TaskNotesPlugin extends Plugin {
 				if (match) {
 					let matchedEmoji = match[1];
 					matchedEmoji = normalizeEmoji(matchedEmoji);
-					console.log('handleFileModify - extracted emoji:', match[1], 'normalized:', matchedEmoji);
+
 					if (matchedEmoji === TASK_EMOJIS.CHECKED) {
 						// Reopen the task by switching to unchecked
 						await this.changeTaskStatus(file, TASK_EMOJIS.UNCHECKED);
@@ -1447,7 +1404,6 @@ export default class TaskNotesPlugin extends Plugin {
 			// Add options to change task status
 			let currentEmoji = match[1];
 			currentEmoji = normalizeEmoji(currentEmoji);
-			console.log('showContextMenuForFile (title) - extracted emoji:', match[1], 'normalized:', currentEmoji);
 			
 			if (currentEmoji !== TASK_EMOJIS.UNCHECKED) {
 				menu.addItem((item) => {
@@ -1516,23 +1472,13 @@ export default class TaskNotesPlugin extends Plugin {
 			const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
 
 			try {
-				console.log('=== Starting conversion ===');
-				console.log('Original file path:', file.path);
-				console.log('Original file basename:', file.basename);
-				console.log('New name:', newName);
-				console.log('New path:', newPath);
-				console.log('File parent:', file.parent?.path || 'no parent');
-				
 				// Apply template before renaming if enabled
 				if (this.settings.applyTemplateOnConvert) {
-					console.log('Applying template before rename...');
 					await this.applyTemplateToFile(file, emoji, true);
 				}
 				
 				// Then rename the file
-				console.log('Renaming file...');
 				await this.app.fileManager.renameFile(file, newPath);
-				console.log('File renamed successfully');
 				
 				new Notice(`Converted to task: ${newName}`);
 			} catch (error) {
@@ -1622,20 +1568,17 @@ export default class TaskNotesPlugin extends Plugin {
 		}
 
 		if (!templatePath || !templatePath.trim()) {
-			console.log('No template configured for emoji:', emoji);
 			return; // No template configured
 		}
 
 		// Normalize the template path
 		templatePath = normalizePath(templatePath.trim());
-		console.log('Applying template from:', templatePath, 'to file:', file.path);
 
 		try {
 			// Try multiple methods to find the template file
 			let templateFile = this.app.vault.getFileByPath(templatePath);
 			
 			if (!templateFile) {
-				console.log('getFileByPath failed, trying getAbstractFileByPath...');
 				const abstractFile = this.app.vault.getAbstractFileByPath(templatePath);
 				if (abstractFile instanceof TFile) {
 					templateFile = abstractFile;
@@ -1644,7 +1587,6 @@ export default class TaskNotesPlugin extends Plugin {
 			
 			// Also try with .md extension if not present
 			if (!templateFile && !templatePath.endsWith('.md')) {
-				console.log('Trying with .md extension...');
 				const pathWithExt = templatePath + '.md';
 				templateFile = this.app.vault.getFileByPath(pathWithExt);
 				if (!templateFile) {
@@ -1657,16 +1599,12 @@ export default class TaskNotesPlugin extends Plugin {
 			
 			if (!templateFile) {
 				console.warn(`Template not found at path: ${templatePath}`);
-				console.log('Available markdown files:', this.app.vault.getMarkdownFiles().map(f => f.path));
 				new Notice(`Template not found: ${templatePath}`);
 				return;
 			}
 
-			console.log('Found template file:', templateFile.path);
-
 			// Read template content
 			const templateContent = await this.app.vault.read(templateFile);
-			console.log('Template content:', templateContent.substring(0, 100), '... (length:', templateContent.length, ')');
 			
 			if (!templateContent) {
 				console.warn('Template is empty');
@@ -1675,19 +1613,14 @@ export default class TaskNotesPlugin extends Plugin {
 			
 			// Read current file content
 			const currentContent = await this.app.vault.read(file);
-			console.log('Current file content length:', currentContent.length);
 			
 			// Apply template if file is empty or if forced (on conversion)
 			if (forceApply || currentContent.trim().length === 0) {
 				// Process template variables (basic support)
 				const processedContent = this.processTemplateVariables(templateContent, file);
-				console.log('Processed content:', processedContent.substring(0, 100), '... (length:', processedContent.length, ')');
 
 				await this.app.vault.modify(file, processedContent);
-				console.log('Template applied successfully to:', file.path);
 				new Notice('Template applied');
-			} else {
-				console.log('File not empty and forceApply=false, skipping template application');
 			}
 		} catch (error) {
 			console.error('Error applying template:', error);
