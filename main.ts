@@ -43,6 +43,23 @@ const DEFAULT_SETTINGS: TaskNotesSettings = {
 	cancelledTaskFormat: '{action} - {amount} - {outcome}'
 };
 
+/**
+ * Normalize emoji by removing invisible characters (variation selectors, zero-width chars, etc.)
+ */
+function normalizeEmoji(emoji: string): string {
+	// Remove variation selectors and other invisible Unicode characters, but NOT regular spaces
+	// Variation selector-16 (U+FE0F) and zero-width characters
+	return emoji.replace(/[\u200b\u200c\u200d\u200e\u200f\ufeff\u061c\ufe0f]+/g, '');
+}
+
+/**
+ * Normalize emojis for comparison, handling variation selectors
+ */
+function normalizeEmojiForComparison(emoji: string): string {
+	// Remove all variation selectors and other invisible modifiers
+	return emoji.replace(/[\ufe0f\u200d\u200c\u200b\u200e\u200f\ufeff\u061c\s]+/g, '');
+}
+
 // Task emoji constants
 const TASK_EMOJIS = {
 	UNCHECKED: '◻️',
@@ -51,7 +68,15 @@ const TASK_EMOJIS = {
 	UNIMPORTANT: '❌'
 } as const;
 
-const TASK_EMOJI_REGEX = /^(◻️|📅|✅|❌)\s+(.+)$/;
+const TASK_EMOJI_REGEX = /^(◻️|◻|📅|✅|❌)\s+(.+)$/;
+
+/**
+ * Clean up task name by removing any embedded invisible characters (but not regular spaces)
+ */
+function cleanupTaskName(taskName: string): string {
+	// Remove invisible characters only, preserve the actual spacing
+	return taskName.replace(/[\u200b\u200c\u200d\u200e\u200f\ufeff\u061c\ufe0f]+/g, '').trim();
+}
 
 /**
  * Parse task name into properties
@@ -59,6 +84,9 @@ const TASK_EMOJI_REGEX = /^(◻️|📅|✅|❌)\s+(.+)$/;
  * Format: "By YYYY-MM-DD, (at HH.MMh - YYYY-MM-DD) Action words - Amount - Amount outcome" (for events with time and date range)
  */
 function parseTaskProperties(taskName: string, isEvent: boolean): TaskProperties {
+	// Clean up any invisible characters that might be embedded in the task name
+	taskName = cleanupTaskName(taskName);
+	
 	const cleanPlaceholder = (value: string): string => {
 		// If the value looks like a placeholder (e.g., {amount}), treat it as empty
 		if (value && /\{[^}]+\}/.test(value)) return '';
@@ -428,7 +456,7 @@ export default class TaskNotesPlugin extends Plugin {
 	settings: TaskNotesSettings;
 
 	async onload() {
-		console.debug('Loading Task Notes Plugin');
+		console.log('Loading Task Notes Plugin');
 
 		// Load settings
 		await this.loadSettings();
@@ -506,7 +534,7 @@ export default class TaskNotesPlugin extends Plugin {
 	}
 
 	onunload() {
-		console.debug('Unloading Task Notes Plugin');
+		console.log('Unloading Task Notes Plugin');
 		
 		// Clean up observers
 		if (this.titleCheckboxObserver) {
@@ -609,7 +637,9 @@ export default class TaskNotesPlugin extends Plugin {
 			return;
 		}
 
-		const [, emoji] = match;
+		let [, emoji] = match;
+		emoji = normalizeEmoji(emoji);
+		console.log('updateFileExplorerCheckbox - extracted emoji:', match[1], 'normalized:', emoji);
 
 		// If an identical checkbox is already present, do nothing.
 		if (existingCheckbox) {
@@ -657,7 +687,8 @@ export default class TaskNotesPlugin extends Plugin {
 			return container;
 		}
 
-		const taskName = match[2];
+		// Clean up any variation selectors or invisible chars that might have crept into the task name
+		const taskName = match[2].replace(/^[\u200b\u200c\u200d\u200e\u200f\ufeff\u061c\ufe0f\s]+/, '').trim();
 		const isEvent = emoji === TASK_EMOJIS.SCHEDULED;
 		const props = parseTaskProperties(taskName, isEvent);
 
@@ -803,12 +834,15 @@ export default class TaskNotesPlugin extends Plugin {
 	 * Handle property input changes and update file
 	 */
 	private async handlePropertyInputChange(file: TFile, emoji: string, container: HTMLElement) {
+		// Normalize the emoji right at the start
+		let normalizedEmoji = normalizeEmoji(emoji);
+		
 		const match = file.basename.match(TASK_EMOJI_REGEX);
 		if (!match) {
 			return;
 		}
 
-		const isEvent = emoji === TASK_EMOJIS.SCHEDULED;
+		const isEvent = normalizedEmoji === TASK_EMOJIS.SCHEDULED;
 
 		// Collect values from inputs
 		const inputs = container.querySelectorAll('input');
@@ -827,8 +861,8 @@ export default class TaskNotesPlugin extends Plugin {
 			const timeInput = inputs[inputIndex++] as HTMLInputElement;
 			const endDateInput = inputs[inputIndex++] as HTMLInputElement;
 
-			startDate = startDateInput.value;
-			endDate = endDateInput.value;
+			startDate = startDateInput.value.trim();
+			endDate = endDateInput.value.trim();
 
 			// Convert HH:MM to HH.MMh format
 			if (timeInput.value) {
@@ -842,9 +876,9 @@ export default class TaskNotesPlugin extends Plugin {
 		const amountInput = inputs[inputIndex++] as HTMLInputElement;
 		const outcomeInput = inputs[inputIndex++] as HTMLInputElement;
 
-		actionWords = actionInput.value;
-		amount = amountInput.value;
-		amountOutcome = outcomeInput.value;
+		actionWords = actionInput.value.trim();
+		amount = amountInput.value.trim();
+		amountOutcome = outcomeInput.value.trim();
 
 		// Validate required fields
 		if (!actionWords || !amount || !amountOutcome) {
@@ -869,20 +903,25 @@ export default class TaskNotesPlugin extends Plugin {
 
 		// Get the appropriate format template
 		let format = this.settings.uncheckedTaskFormat;
-		if (emoji === TASK_EMOJIS.SCHEDULED) {
+		if (normalizedEmoji === TASK_EMOJIS.SCHEDULED) {
 			format = this.settings.scheduledTaskFormat;
-		} else if (emoji === TASK_EMOJIS.CHECKED) {
+		} else if (normalizedEmoji === TASK_EMOJIS.CHECKED) {
 			format = this.settings.completedTaskFormat;
-		} else if (emoji === TASK_EMOJIS.UNIMPORTANT) {
+		} else if (normalizedEmoji === TASK_EMOJIS.UNIMPORTANT) {
 			format = this.settings.cancelledTaskFormat;
 		}
 
 		const newTaskName = generateTaskName(props, format);
-		const newName = `${emoji} ${newTaskName}`;
+		// Remove any embedded variation selectors from the generated task name
+		const cleanedTaskName = cleanupTaskName(newTaskName);
+		const cleanEmoji = normalizeEmoji(normalizedEmoji);
+		// Ensure exactly one space between emoji and task name
+		const newName = `${cleanEmoji} ${cleanedTaskName}`.replace(/\s+/g, ' ');
 		const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
 
 		try {
 			await this.app.fileManager.renameFile(file, newPath);
+			new Notice('Task updated successfully');
 		} catch (error) {
 			new Notice(`Failed to update task: ${error.message}`);
 			console.error('Error updating task properties:', error);
@@ -953,7 +992,9 @@ export default class TaskNotesPlugin extends Plugin {
 			return;
 		}
 
-		const [, emoji] = match;
+		let [, emoji] = match;
+		emoji = normalizeEmoji(emoji);
+		console.log('updateTitleCheckbox - extracted emoji:', match[1], 'normalized:', emoji);
 
 		// Create wrapper for checkbox and inputs in footer
 		const wrapper = document.createElement('div');
@@ -1053,7 +1094,7 @@ export default class TaskNotesPlugin extends Plugin {
 			}
 		}
 
-		const newName = file.basename.replace(TASK_EMOJI_REGEX, `${newEmoji} $2`);
+		const newName = file.basename.replace(TASK_EMOJI_REGEX, `${newEmoji} $2`).trim();
 		const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
 
 		try {
@@ -1109,7 +1150,9 @@ export default class TaskNotesPlugin extends Plugin {
 			menu.addItem(item => item.setTitle('Convert to completed task ✅').setIcon('checkmark').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.CHECKED); }));
 			menu.addItem(item => item.setTitle('Convert to cancelled ❌').setIcon('cross').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.UNIMPORTANT); }));
 		} else {
-			const current = match[1];
+			let current = match[1];
+			current = normalizeEmoji(current);
+			console.log('showContextMenuForFile - extracted emoji:', match[1], 'normalized:', current);
 			menu.addItem(item => item.setTitle('Remove task status').setIcon('cross').onClick(async () => { await this.removeTaskEmoji(file); }));
 
 			if (current !== TASK_EMOJIS.UNCHECKED) menu.addItem(item => item.setTitle('Mark as unchecked ◻️').setIcon('checkbox-glyph').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.UNCHECKED); }));
@@ -1138,7 +1181,9 @@ export default class TaskNotesPlugin extends Plugin {
 		// Create a simple prompt for emoji
 		// Since Obsidian doesn't have built-in emoji picker, we'll just accept any text input
 		const match = file.basename.match(TASK_EMOJI_REGEX);
-		const currentEmoji = match ? match[1] : '';
+		let currentEmoji = match ? match[1] : '';
+		currentEmoji = normalizeEmoji(currentEmoji);
+		console.log('showCustomEmojiDialog - extracted emoji:', match ? match[1] : 'none', 'normalized:', currentEmoji);
 
 		const dialog = document.createElement('div');
 		dialog.className = 'task-notes-custom-emoji-dialog';
@@ -1321,10 +1366,15 @@ export default class TaskNotesPlugin extends Plugin {
 			// Only act when a transition from no unchecked -> has unchecked occurs
 			if (!prev && hasUnchecked) {
 				const match = file.basename.match(TASK_EMOJI_REGEX);
-				if (match && match[1] === TASK_EMOJIS.CHECKED) {
-					// Reopen the task by switching to unchecked
-					await this.changeTaskStatus(file, TASK_EMOJIS.UNCHECKED);
-					new Notice('Note contains unchecked checklist items. Reopening task to ◻️.');
+				if (match) {
+					let matchedEmoji = match[1];
+					matchedEmoji = normalizeEmoji(matchedEmoji);
+					console.log('handleFileModify - extracted emoji:', match[1], 'normalized:', matchedEmoji);
+					if (matchedEmoji === TASK_EMOJIS.CHECKED) {
+						// Reopen the task by switching to unchecked
+						await this.changeTaskStatus(file, TASK_EMOJIS.UNCHECKED);
+						new Notice('Note contains unchecked checklist items. Reopening task to ◻️.');
+					}
 				}
 			}
 			// Update tracked state
@@ -1395,7 +1445,9 @@ export default class TaskNotesPlugin extends Plugin {
 			});
 
 			// Add options to change task status
-			const currentEmoji = match[1];
+			let currentEmoji = match[1];
+			currentEmoji = normalizeEmoji(currentEmoji);
+			console.log('showContextMenuForFile (title) - extracted emoji:', match[1], 'normalized:', currentEmoji);
 			
 			if (currentEmoji !== TASK_EMOJIS.UNCHECKED) {
 				menu.addItem((item) => {
@@ -1459,27 +1511,28 @@ export default class TaskNotesPlugin extends Plugin {
 			}
 			
 			const taskName = generateTaskName(props, format);
-			const newName = `${emoji} ${taskName}`;
+			const cleanEmoji = normalizeEmoji(emoji);
+			const newName = `${cleanEmoji} ${taskName.trim()}`.replace(/\s+/g, ' ');
 			const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
 
 			try {
-				console.debug('=== Starting conversion ===');
-				console.debug('Original file path:', file.path);
-				console.debug('Original file basename:', file.basename);
-				console.debug('New name:', newName);
-				console.debug('New path:', newPath);
-				console.debug('File parent:', file.parent?.path || 'no parent');
+				console.log('=== Starting conversion ===');
+				console.log('Original file path:', file.path);
+				console.log('Original file basename:', file.basename);
+				console.log('New name:', newName);
+				console.log('New path:', newPath);
+				console.log('File parent:', file.parent?.path || 'no parent');
 				
 				// Apply template before renaming if enabled
 				if (this.settings.applyTemplateOnConvert) {
-					console.debug('Applying template before rename...');
+					console.log('Applying template before rename...');
 					await this.applyTemplateToFile(file, emoji, true);
 				}
 				
 				// Then rename the file
-				console.debug('Renaming file...');
+				console.log('Renaming file...');
 				await this.app.fileManager.renameFile(file, newPath);
-				console.debug('File renamed successfully');
+				console.log('File renamed successfully');
 				
 				new Notice(`Converted to task: ${newName}`);
 			} catch (error) {
@@ -1529,7 +1582,8 @@ export default class TaskNotesPlugin extends Plugin {
 		}
 
 		const [, , nameWithoutEmoji] = match;
-		const newName = `${newEmoji} ${nameWithoutEmoji}`;
+		const cleanEmoji = normalizeEmoji(newEmoji);
+		const newName = `${cleanEmoji} ${nameWithoutEmoji}`;
 		const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
 
 		try {
@@ -1568,20 +1622,20 @@ export default class TaskNotesPlugin extends Plugin {
 		}
 
 		if (!templatePath || !templatePath.trim()) {
-			console.debug('No template configured for emoji:', emoji);
+			console.log('No template configured for emoji:', emoji);
 			return; // No template configured
 		}
 
 		// Normalize the template path
 		templatePath = normalizePath(templatePath.trim());
-		console.debug('Applying template from:', templatePath, 'to file:', file.path);
+		console.log('Applying template from:', templatePath, 'to file:', file.path);
 
 		try {
 			// Try multiple methods to find the template file
 			let templateFile = this.app.vault.getFileByPath(templatePath);
 			
 			if (!templateFile) {
-				console.debug('getFileByPath failed, trying getAbstractFileByPath...');
+				console.log('getFileByPath failed, trying getAbstractFileByPath...');
 				const abstractFile = this.app.vault.getAbstractFileByPath(templatePath);
 				if (abstractFile instanceof TFile) {
 					templateFile = abstractFile;
@@ -1590,7 +1644,7 @@ export default class TaskNotesPlugin extends Plugin {
 			
 			// Also try with .md extension if not present
 			if (!templateFile && !templatePath.endsWith('.md')) {
-				console.debug('Trying with .md extension...');
+				console.log('Trying with .md extension...');
 				const pathWithExt = templatePath + '.md';
 				templateFile = this.app.vault.getFileByPath(pathWithExt);
 				if (!templateFile) {
@@ -1603,16 +1657,16 @@ export default class TaskNotesPlugin extends Plugin {
 			
 			if (!templateFile) {
 				console.warn(`Template not found at path: ${templatePath}`);
-				console.debug('Available markdown files:', this.app.vault.getMarkdownFiles().map(f => f.path));
+				console.log('Available markdown files:', this.app.vault.getMarkdownFiles().map(f => f.path));
 				new Notice(`Template not found: ${templatePath}`);
 				return;
 			}
 
-			console.debug('Found template file:', templateFile.path);
+			console.log('Found template file:', templateFile.path);
 
 			// Read template content
 			const templateContent = await this.app.vault.read(templateFile);
-			console.debug('Template content:', templateContent.substring(0, 100), '... (length:', templateContent.length, ')');
+			console.log('Template content:', templateContent.substring(0, 100), '... (length:', templateContent.length, ')');
 			
 			if (!templateContent) {
 				console.warn('Template is empty');
@@ -1621,19 +1675,19 @@ export default class TaskNotesPlugin extends Plugin {
 			
 			// Read current file content
 			const currentContent = await this.app.vault.read(file);
-			console.debug('Current file content length:', currentContent.length);
+			console.log('Current file content length:', currentContent.length);
 			
 			// Apply template if file is empty or if forced (on conversion)
 			if (forceApply || currentContent.trim().length === 0) {
 				// Process template variables (basic support)
 				const processedContent = this.processTemplateVariables(templateContent, file);
-				console.debug('Processed content:', processedContent.substring(0, 100), '... (length:', processedContent.length, ')');
+				console.log('Processed content:', processedContent.substring(0, 100), '... (length:', processedContent.length, ')');
 
 				await this.app.vault.modify(file, processedContent);
-				console.debug('Template applied successfully to:', file.path);
+				console.log('Template applied successfully to:', file.path);
 				new Notice('Template applied');
 			} else {
-				console.debug('File not empty and forceApply=false, skipping template application');
+				console.log('File not empty and forceApply=false, skipping template application');
 			}
 		} catch (error) {
 			console.error('Error applying template:', error);

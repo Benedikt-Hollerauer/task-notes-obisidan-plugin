@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "◻️ ️ test - 01testsett - teetst.md",
+                "file": "✅ test - 1 - test.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "◻️ ️ test - 01testsett - teetst"
+              "title": "✅ test - 1 - test"
             }
           }
         ]
@@ -94,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "◻️ ️ test - 01testsett - teetst.md",
+                "file": "◻️ ️ ️ ️ ️ ️ 3 - 1 - 1.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for ◻️ ️ test - 01testsett - teetst"
+              "title": "Backlinks for ◻️ ️ ️ ️ ️ ️ 3 - 1 - 1"
             }
           },
           {
@@ -113,12 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "◻️ ️ test - 01testsett - teetst.md",
+                "file": "◻️ ️ ️ ️ ️ ️ 3 - 1 - 1.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from ◻️ ️ test - 01testsett - teetst"
+              "title": "Outgoing links from ◻️ ️ ️ ️ ️ ️ 3 - 1 - 1"
             }
           },
           {
@@ -156,13 +156,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "◻️ ️ test - 01testsett - teetst.md",
+                "file": "◻️ ️ ️ ️ ️ ️ 3 - 1 - 1.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of ◻️ ️ test - 01testsett - teetst"
+              "title": "Outline of ◻️ ️ ️ ️ ️ ️ 3 - 1 - 1"
             }
           }
         ]
@@ -185,13 +185,14 @@
   },
   "active": "9d8c3ed302067d19",
   "lastOpenFiles": [
-    "By 2222-02-22, 2 - 2 - 2.md",
-    "◻️ ️ test - 01testsett - teetst.md",
-    "✅ By 2026-01-13 , moin - 2026 - 01-14, buy - 2 - thing.md",
-    "✅ test - 1 - test.md",
-    "✅ Finish project report - fd - sfadsdf.md",
     "✅ f - df - f.md",
-    "◻️ test - 1 - test.md",
+    "✅ By 2026-01-15, fsdgfdgsfdgs - fsdgfdgsfdg - fsdgfdgsfsdg.md",
+    "📅 By 2026-01-20, test - 1 - test.md",
+    "◻ 3 - 1 - 1dcddd.md",
+    "✅ By 2026 - 01 - 13, moin - 2026 - 01-14, buy - 2 - thing.md",
+    "✅ Finish project report - fd - sfadsdf.md",
+    "✅ test - 1 - test.md",
+    "By 2222-02-22, 2 - 2 - 2.md",
     "test/template.md",
     "test/README.md",
     "test",
