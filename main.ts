@@ -49,7 +49,7 @@ function setCssProps(element: HTMLElement, styles: Record<string, string>): void
 function normalizeEmoji(emoji: string): string {
 	// Remove variation selectors and other invisible Unicode characters, but NOT regular spaces
 	// Variation selector-16 (U+FE0F) and zero-width characters
-	return emoji.replace(/[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C\uFE0F]+/gu, '');
+	return emoji.replace(/[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C]/gu, '').replace(/\uFE0F/gu, '');
 }
 
 // Task emoji constants
@@ -60,14 +60,14 @@ const TASK_EMOJIS = {
 	UNIMPORTANT: '❌'
 } as const;
 
-const TASK_EMOJI_REGEX = /^(◻️|◻|📅|✅|❌)\s+(.+)$/;
+const TASK_EMOJI_REGEX = /^([\u25FB\uFE0F]|[\u25FB]|[\ud83d\udcc5]|[\u2705]|[\u274c])\s+(.+)$/;
 
 /**
  * Clean up task name by removing any embedded invisible characters (but not regular spaces)
  */
 function cleanupTaskName(taskName: string): string {
 	// Remove invisible characters only, preserve the actual spacing
-	return taskName.replace(/[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C\uFE0F]+/gu, '').trim();
+	return taskName.replace(/[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C]/gu, '').replace(/\uFE0F/gu, '').trim();
 }
 
 /**
@@ -352,21 +352,21 @@ class TaskPropertiesModal extends Modal {
 		const actionGroup = form.createDiv({ cls: 'task-modal-input-group' });
 		actionGroup.createEl('label', { text: labels.action });
 		const actionInput = actionGroup.createEl('input', { type: 'text', cls: 'task-modal-text-input' });
-		actionInput.placeholder = 'e.g., Buy, Finish, Complete';
+		actionInput.placeholder = 'E.g., Buy, Finish, Complete';
 		actionInput.required = true;
 
 		// Amount input
 		const amountGroup = form.createDiv({ cls: 'task-modal-input-group' });
 		amountGroup.createEl('label', { text: labels.amount });
 		const amountInput = amountGroup.createEl('input', { type: 'text', cls: 'task-modal-text-input' });
-		amountInput.placeholder = 'e.g., 3, 5 items, 2 hours';
+		amountInput.placeholder = 'E.g., 3, 5 items, 2 hours';
 		amountInput.required = true;
 
 		// Outcome input
 		const outcomeGroup = form.createDiv({ cls: 'task-modal-input-group' });
 		outcomeGroup.createEl('label', { text: labels.outcome });
 		const outcomeInput = outcomeGroup.createEl('input', { type: 'text', cls: 'task-modal-text-input' });
-		outcomeInput.placeholder = 'e.g., groceries, report, project';
+		outcomeInput.placeholder = 'E.g., groceries, report, project';
 		outcomeInput.required = true;
 
 		// Buttons
@@ -651,7 +651,7 @@ export default class TaskNotesPlugin extends Plugin {
 		// Clean up any variation selectors or invisible chars that might have crept into the task name
 		let taskName = match[2].replace(/^[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C\uFE0F\s]+/u, '').trim();
 		// Also strip any additional emojis that might have been accidentally added
-		taskName = taskName.replace(/^(?:◻️|◻|📅|✅|❌)\s*/, '');
+		taskName = taskName.replace(/^(?:[\u25FB][\uFE0F]?|[\u25FB]|[\ud83d][\udcc5]|[\u2705]|[\u274c])\s*/, '');
 		const isEvent = normalizeEmoji(emoji) === normalizeEmoji(TASK_EMOJIS.SCHEDULED);
 		const props = parseTaskProperties(taskName, isEvent);
 
