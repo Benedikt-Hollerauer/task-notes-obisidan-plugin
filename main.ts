@@ -1,4 +1,4 @@
-import { App, Plugin, TFile, TAbstractFile, Menu, Notice, PluginSettingTab, Setting, normalizePath, Modal, MarkdownView } from 'obsidian';
+import { App, Plugin, TFile, TAbstractFile, Menu, Notice, PluginSettingTab, Setting, normalizePath, Modal } from 'obsidian';
 
 // Task properties interface
 interface TaskProperties {
@@ -49,7 +49,7 @@ function setCssProps(element: HTMLElement, styles: Record<string, string>): void
 function normalizeEmoji(emoji: string): string {
 	// Remove variation selectors and other invisible Unicode characters, but NOT regular spaces
 	// Variation selector-16 (U+FE0F) and zero-width characters
-	return emoji.replace(/[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C\uFE0F]+/g, '');
+	return emoji.replace(/[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C\uFE0F]+/gu, '');
 }
 
 // Task emoji constants
@@ -67,7 +67,7 @@ const TASK_EMOJI_REGEX = /^(◻️|◻|📅|✅|❌)\s+(.+)$/;
  */
 function cleanupTaskName(taskName: string): string {
 	// Remove invisible characters only, preserve the actual spacing
-	return taskName.replace(/[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C\uFE0F]+/g, '').trim();
+	return taskName.replace(/[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C\uFE0F]+/gu, '').trim();
 }
 
 /**
@@ -352,21 +352,21 @@ class TaskPropertiesModal extends Modal {
 		const actionGroup = form.createDiv({ cls: 'task-modal-input-group' });
 		actionGroup.createEl('label', { text: labels.action });
 		const actionInput = actionGroup.createEl('input', { type: 'text', cls: 'task-modal-text-input' });
-		actionInput.placeholder = 'E.g., Buy, Finish, Complete';
+		actionInput.placeholder = 'e.g., Buy, Finish, Complete';
 		actionInput.required = true;
 
 		// Amount input
 		const amountGroup = form.createDiv({ cls: 'task-modal-input-group' });
 		amountGroup.createEl('label', { text: labels.amount });
 		const amountInput = amountGroup.createEl('input', { type: 'text', cls: 'task-modal-text-input' });
-		amountInput.placeholder = 'E.g., 3, 5 items, 2 hours';
+		amountInput.placeholder = 'e.g., 3, 5 items, 2 hours';
 		amountInput.required = true;
 
 		// Outcome input
 		const outcomeGroup = form.createDiv({ cls: 'task-modal-input-group' });
 		outcomeGroup.createEl('label', { text: labels.outcome });
 		const outcomeInput = outcomeGroup.createEl('input', { type: 'text', cls: 'task-modal-text-input' });
-		outcomeInput.placeholder = 'E.g., groceries, report, project';
+		outcomeInput.placeholder = 'e.g., groceries, report, project';
 		outcomeInput.required = true;
 
 		// Buttons
@@ -649,7 +649,7 @@ export default class TaskNotesPlugin extends Plugin {
 		}
 
 		// Clean up any variation selectors or invisible chars that might have crept into the task name
-		let taskName = match[2].replace(/^[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C\uFE0F\s]+/, '').trim();
+		let taskName = match[2].replace(/^[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C\uFE0F\s]+/u, '').trim();
 		// Also strip any additional emojis that might have been accidentally added
 		taskName = taskName.replace(/^(?:◻️|◻|📅|✅|❌)\s*/, '');
 		const isEvent = normalizeEmoji(emoji) === normalizeEmoji(TASK_EMOJIS.SCHEDULED);
@@ -1103,10 +1103,10 @@ export default class TaskNotesPlugin extends Plugin {
 		const hasTaskEmoji = !!match;
 
 		if (!hasTaskEmoji) {
-			menu.addItem(item => item.setTitle('Convert to unchecked task ◻️').setIcon('checkbox-glyph').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.UNCHECKED); }));
-			menu.addItem(item => item.setTitle('Convert to scheduled task 📅').setIcon('calendar-glyph').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.SCHEDULED); }));
-			menu.addItem(item => item.setTitle('Convert to completed task ✅').setIcon('checkmark').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.CHECKED); }));
-			menu.addItem(item => item.setTitle('Convert to cancelled ❌').setIcon('cross').onClick(async () => { await this.convertToTask(file, TASK_EMOJIS.UNIMPORTANT); }));
+			menu.addItem(item => item.setTitle('Convert to unchecked task ◻️').setIcon('checkbox-glyph').onClick(() => { this.convertToTask(file, TASK_EMOJIS.UNCHECKED); }));
+			menu.addItem(item => item.setTitle('Convert to scheduled task 📅').setIcon('calendar-glyph').onClick(() => { this.convertToTask(file, TASK_EMOJIS.SCHEDULED); }));
+			menu.addItem(item => item.setTitle('Convert to completed task ✅').setIcon('checkmark').onClick(() => { this.convertToTask(file, TASK_EMOJIS.CHECKED); }));
+			menu.addItem(item => item.setTitle('Convert to cancelled ❌').setIcon('cross').onClick(() => { this.convertToTask(file, TASK_EMOJIS.UNIMPORTANT); }));
 		} else {
 			let current = match[1];
 			current = normalizeEmoji(current);
@@ -1121,7 +1121,7 @@ export default class TaskNotesPlugin extends Plugin {
 
 		// Add option to use custom emoji
 		menu.addSeparator();
-		menu.addItem(item => item.setTitle('Use custom emoji').setIcon('pencil').onClick(async () => { await this.showCustomEmojiDialog(file); }));
+		menu.addItem(item => item.setTitle('Use custom emoji').setIcon('pencil').onClick(() => { this.showCustomEmojiDialog(file); }));
 
 		// Show the menu at mouse position (guarded)
 		try {
@@ -1367,8 +1367,8 @@ export default class TaskNotesPlugin extends Plugin {
 				item
 					.setTitle('Convert to unchecked task ◻️')
 					.setIcon('checkbox-glyph')
-					.onClick(async () => {
-						await this.convertToTask(file, TASK_EMOJIS.UNCHECKED);
+					.onClick(() => {
+						this.convertToTask(file, TASK_EMOJIS.UNCHECKED);
 					});
 			});
 
@@ -1376,8 +1376,8 @@ export default class TaskNotesPlugin extends Plugin {
 				item
 					.setTitle('Convert to scheduled task 📅')
 					.setIcon('calendar-glyph')
-					.onClick(async () => {
-						await this.convertToTask(file, TASK_EMOJIS.SCHEDULED);
+					.onClick(() => {
+						this.convertToTask(file, TASK_EMOJIS.SCHEDULED);
 					});
 			});
 
@@ -1385,8 +1385,8 @@ export default class TaskNotesPlugin extends Plugin {
 				item
 					.setTitle('Convert to completed task ✅')
 					.setIcon('checkmark')
-					.onClick(async () => {
-						await this.convertToTask(file, TASK_EMOJIS.CHECKED);
+					.onClick(() => {
+						this.convertToTask(file, TASK_EMOJIS.CHECKED);
 					});
 			});
 
@@ -1394,8 +1394,8 @@ export default class TaskNotesPlugin extends Plugin {
 				item
 					.setTitle('Convert to unimportant ❌')
 					.setIcon('cross')
-					.onClick(async () => {
-						await this.convertToTask(file, TASK_EMOJIS.UNIMPORTANT);
+					.onClick(() => {
+						this.convertToTask(file, TASK_EMOJIS.UNIMPORTANT);
 					});
 			});
 		} else {
