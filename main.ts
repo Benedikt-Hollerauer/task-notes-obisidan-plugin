@@ -1,4 +1,4 @@
-import { App, Plugin, TFile, TAbstractFile, Menu, Notice, PluginSettingTab, Setting, normalizePath, Modal } from 'obsidian';
+import { App, Plugin, TFile, TAbstractFile, Menu, Notice, PluginSettingTab, Setting, normalizePath, Modal, MarkdownView } from 'obsidian';
 
 // Task properties interface
 interface TaskProperties {
@@ -37,20 +37,19 @@ const DEFAULT_SETTINGS: TaskNotesSettings = {
 };
 
 /**
+ * Helper function to set CSS properties on an element
+ */
+function setCssProps(element: HTMLElement, styles: Record<string, string>): void {
+	Object.assign(element.style, styles);
+}
+
+/**
  * Normalize emoji by removing invisible characters (variation selectors, zero-width chars, etc.)
  */
 function normalizeEmoji(emoji: string): string {
 	// Remove variation selectors and other invisible Unicode characters, but NOT regular spaces
 	// Variation selector-16 (U+FE0F) and zero-width characters
-	return emoji.replace(/[\u200B-\u200F\uFEFF\u061C\uFE0F]+/g, '');
-}
-
-/**
- * Normalize emojis for comparison, handling variation selectors
- */
-function normalizeEmojiForComparison(emoji: string): string {
-	// Remove all variation selectors and other invisible modifiers
-	return emoji.replace(/[\u200B-\u200F\uFEFF\u061C\uFE0F\s]+/g, '');
+	return emoji.replace(/[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C\uFE0F]+/g, '');
 }
 
 // Task emoji constants
@@ -68,7 +67,7 @@ const TASK_EMOJI_REGEX = /^(◻️|◻|📅|✅|❌)\s+(.+)$/;
  */
 function cleanupTaskName(taskName: string): string {
 	// Remove invisible characters only, preserve the actual spacing
-	return taskName.replace(/[\u200B-\u200F\uFEFF\u061C\uFE0F]+/g, '').trim();
+	return taskName.replace(/[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C\uFE0F]+/g, '').trim();
 }
 
 /**
@@ -150,7 +149,7 @@ function parseTaskProperties(taskName: string, isEvent: boolean): TaskProperties
  */
 function generateTaskName(props: TaskProperties, format: string): string {
 	// Strip any emoji prefix from the format (emojis are added by task type)
-	let result = format.replace(/^[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}◻️✅📅❌]\s*/u, '');
+	let result = format.replace(/^(?:◻️|✅|📅|❌)\s*/, '');
 	
 	
 	// Replace date/time placeholders (for scheduled tasks)
@@ -353,21 +352,21 @@ class TaskPropertiesModal extends Modal {
 		const actionGroup = form.createDiv({ cls: 'task-modal-input-group' });
 		actionGroup.createEl('label', { text: labels.action });
 		const actionInput = actionGroup.createEl('input', { type: 'text', cls: 'task-modal-text-input' });
-		actionInput.placeholder = 'e.g., Buy, Finish, Complete';
+		actionInput.placeholder = 'E.g., Buy, Finish, Complete';
 		actionInput.required = true;
 
 		// Amount input
 		const amountGroup = form.createDiv({ cls: 'task-modal-input-group' });
 		amountGroup.createEl('label', { text: labels.amount });
 		const amountInput = amountGroup.createEl('input', { type: 'text', cls: 'task-modal-text-input' });
-		amountInput.placeholder = 'e.g., 3, 5 items, 2 hours';
+		amountInput.placeholder = 'E.g., 3, 5 items, 2 hours';
 		amountInput.required = true;
 
 		// Outcome input
 		const outcomeGroup = form.createDiv({ cls: 'task-modal-input-group' });
 		outcomeGroup.createEl('label', { text: labels.outcome });
 		const outcomeInput = outcomeGroup.createEl('input', { type: 'text', cls: 'task-modal-text-input' });
-		outcomeInput.placeholder = 'e.g., groceries, report, project';
+		outcomeInput.placeholder = 'E.g., groceries, report, project';
 		outcomeInput.required = true;
 
 		// Buttons
@@ -376,7 +375,7 @@ class TaskPropertiesModal extends Modal {
 		const cancelBtn = buttonGroup.createEl('button', { text: 'Cancel', type: 'button', cls: 'task-modal-cancel-btn' });
 		cancelBtn.addEventListener('click', () => this.close());
 
-		const submitBtn = buttonGroup.createEl('button', { text: 'Create', type: 'submit', cls: 'task-modal-submit-btn' });
+		buttonGroup.createEl('button', { text: 'Create', type: 'submit', cls: 'task-modal-submit-btn' });
 
 		form.addEventListener('submit', (e) => {
 			e.preventDefault();
@@ -650,8 +649,10 @@ export default class TaskNotesPlugin extends Plugin {
 		}
 
 		// Clean up any variation selectors or invisible chars that might have crept into the task name
-		const taskName = match[2].replace(/^[\u200b\u200c\u200d\u200e\u200f\ufeff\u061c\ufe0f\s]+/, '').trim();
-		const isEvent = emoji === TASK_EMOJIS.SCHEDULED;
+		let taskName = match[2].replace(/^[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C\uFE0F\s]+/, '').trim();
+		// Also strip any additional emojis that might have been accidentally added
+		taskName = taskName.replace(/^(?:◻️|◻|📅|✅|❌)\s*/, '');
+		const isEvent = normalizeEmoji(emoji) === normalizeEmoji(TASK_EMOJIS.SCHEDULED);
 		const props = parseTaskProperties(taskName, isEvent);
 
 		// Create input fields
@@ -678,7 +679,7 @@ export default class TaskNotesPlugin extends Plugin {
 
 			// Time input - place right after start date
 			const timeLabel = document.createElement('label');
-			timeLabel.textContent = ' at ';
+			timeLabel.textContent = ' At ';
 			timeLabel.className = 'task-notes-label';
 
 			const timeInput = document.createElement('input');
@@ -698,7 +699,7 @@ export default class TaskNotesPlugin extends Plugin {
 
 			// End date input for range - place after time
 			const endDateLabel = document.createElement('label');
-			endDateLabel.textContent = ' to ';
+			endDateLabel.textContent = ' To ';
 			endDateLabel.className = 'task-notes-label';
 
 			const endDateInput = document.createElement('input');
@@ -784,8 +785,8 @@ export default class TaskNotesPlugin extends Plugin {
 		applyBtn.type = 'button';
 		applyBtn.textContent = 'Apply';
 		applyBtn.className = 'task-notes-apply-btn';
-		applyBtn.addEventListener('click', async () => {
-			await this.handlePropertyInputChange(file, emoji, container);
+		applyBtn.addEventListener('click', () => {
+			void this.handlePropertyInputChange(file, emoji, container);
 		});
 		container.appendChild(applyBtn);
 
@@ -797,14 +798,14 @@ export default class TaskNotesPlugin extends Plugin {
 	 */
 	private async handlePropertyInputChange(file: TFile, emoji: string, container: HTMLElement) {
 		// Normalize the emoji right at the start
-		let normalizedEmoji = normalizeEmoji(emoji);
+		const normalizedEmoji = normalizeEmoji(emoji);
 		
 		const match = file.basename.match(TASK_EMOJI_REGEX);
 		if (!match) {
 			return;
 		}
 
-		const isEvent = normalizedEmoji === TASK_EMOJIS.SCHEDULED;
+		const isEvent = normalizedEmoji === normalizeEmoji(TASK_EMOJIS.SCHEDULED);
 
 		// Collect values from inputs
 		const inputs = container.querySelectorAll('input');
@@ -819,9 +820,9 @@ export default class TaskNotesPlugin extends Plugin {
 
 		if (isEvent) {
 			// Date inputs (0: startDate, 1: time, 2: endDate)
-			const startDateInput = inputs[inputIndex++] as HTMLInputElement;
-			const timeInput = inputs[inputIndex++] as HTMLInputElement;
-			const endDateInput = inputs[inputIndex++] as HTMLInputElement;
+			const startDateInput = inputs[inputIndex++];
+			const timeInput = inputs[inputIndex++];
+			const endDateInput = inputs[inputIndex++];
 
 			startDate = startDateInput.value.trim();
 			endDate = endDateInput.value.trim();
@@ -834,9 +835,9 @@ export default class TaskNotesPlugin extends Plugin {
 		}
 
 		// Action, amount, outcome inputs
-		const actionInput = inputs[inputIndex++] as HTMLInputElement;
-		const amountInput = inputs[inputIndex++] as HTMLInputElement;
-		const outcomeInput = inputs[inputIndex++] as HTMLInputElement;
+		const actionInput = inputs[inputIndex++];
+		const amountInput = inputs[inputIndex++];
+		const outcomeInput = inputs[inputIndex++];
 
 		actionWords = actionInput.value.trim();
 		amount = amountInput.value.trim();
@@ -865,20 +866,19 @@ export default class TaskNotesPlugin extends Plugin {
 
 		// Get the appropriate format template
 		let format = this.settings.uncheckedTaskFormat;
-		if (normalizedEmoji === TASK_EMOJIS.SCHEDULED) {
+		if (normalizedEmoji === normalizeEmoji(TASK_EMOJIS.SCHEDULED)) {
 			format = this.settings.scheduledTaskFormat;
-		} else if (normalizedEmoji === TASK_EMOJIS.CHECKED) {
+		} else if (normalizedEmoji === normalizeEmoji(TASK_EMOJIS.CHECKED)) {
 			format = this.settings.completedTaskFormat;
-		} else if (normalizedEmoji === TASK_EMOJIS.UNIMPORTANT) {
+		} else if (normalizedEmoji === normalizeEmoji(TASK_EMOJIS.UNIMPORTANT)) {
 			format = this.settings.cancelledTaskFormat;
 		}
 
 		const newTaskName = generateTaskName(props, format);
 		// Remove any embedded variation selectors from the generated task name
 		const cleanedTaskName = cleanupTaskName(newTaskName);
-		const cleanEmoji = normalizeEmoji(normalizedEmoji);
 		// Ensure exactly one space between emoji and task name
-		const newName = `${cleanEmoji} ${cleanedTaskName}`.replace(/\s+/g, ' ');
+		const newName = `${normalizedEmoji} ${cleanedTaskName}`.replace(/\s+/g, ' ').trim();
 		const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
 
 		try {
@@ -928,12 +928,12 @@ export default class TaskNotesPlugin extends Plugin {
 	 */
 	private updateTitleCheckbox(file: TFile | null) {
 		// Find the footer in the current active leaf
-		const activeLeaf = this.app.workspace.activeLeaf;
+		const activeLeaf = this.app.workspace.getLeaf(false);
 		if (!activeLeaf) {
 			return;
 		}
 
-		const viewContent = activeLeaf.view.containerEl.querySelector('.view-content') as HTMLElement | null;
+		const viewContent = activeLeaf.view.containerEl.querySelector('.view-content');
 		if (!viewContent) {
 			return;
 		}
@@ -1000,12 +1000,12 @@ export default class TaskNotesPlugin extends Plugin {
 	 */
 	private getFooterContainer(): HTMLElement | null {
 		// Target the active markdown view's container
-		const activeLeaf = this.app.workspace.activeLeaf;
+		const activeLeaf = this.app.workspace.getLeaf(false);
 		if (!activeLeaf) {
 			return null;
 		}
 
-		const viewContent = activeLeaf.view.containerEl.querySelector('.view-content') as HTMLElement | null;
+		const viewContent = activeLeaf.view.containerEl.querySelector('.view-content');
 		if (!viewContent) {
 			return null;
 		}
@@ -1135,7 +1135,7 @@ export default class TaskNotesPlugin extends Plugin {
 	/**
 	 * Show dialog for custom emoji input
 	 */
-	private async showCustomEmojiDialog(file: TFile) {
+	private showCustomEmojiDialog(file: TFile) {
 		// Create a simple prompt for emoji
 		// Since Obsidian doesn't have built-in emoji picker, we'll just accept any text input
 		const match = file.basename.match(TASK_EMOJI_REGEX);
@@ -1144,58 +1144,66 @@ export default class TaskNotesPlugin extends Plugin {
 
 		const dialog = document.createElement('div');
 		dialog.className = 'task-notes-custom-emoji-dialog';
-		dialog.style.cssText = `
-			position: fixed;
-			top: 50%;
-			left: 50%;
-			transform: translate(-50%, -50%);
-			background: var(--background-secondary);
-			border: 1px solid var(--border-color);
-			border-radius: 4px;
-			padding: 16px;
-			z-index: 10000;
-			box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-		`;
+		setCssProps(dialog, {
+			position: 'fixed',
+			top: '50%',
+			left: '50%',
+			transform: 'translate(-50%, -50%)',
+			background: 'var(--background-secondary)',
+			border: '1px solid var(--border-color)',
+			borderRadius: '4px',
+			padding: '16px',
+			zIndex: '10000',
+			boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)'
+		});
 
 		const label = document.createElement('label');
 		label.textContent = 'Enter emoji or custom text (e.g., 🎯, ⚡, or any text):';
-		label.style.cssText = 'display: block; margin-bottom: 8px; font-weight: 500;';
+		setCssProps(label, {
+			display: 'block',
+			marginBottom: '8px',
+			fontWeight: '500'
+		});
 
 		const input = document.createElement('input');
 		input.type = 'text';
 		input.value = currentEmoji;
 		input.placeholder = 'Emoji or text';
-		input.style.cssText = `
-			width: 100%;
-			padding: 8px;
-			margin-bottom: 12px;
-			border: 1px solid var(--border-color);
-			border-radius: 4px;
-			background: var(--background-primary);
-			color: var(--text-normal);
-			box-sizing: border-box;
-		`;
+		setCssProps(input, {
+			width: '100%',
+			padding: '8px',
+			marginBottom: '12px',
+			border: '1px solid var(--border-color)',
+			borderRadius: '4px',
+			background: 'var(--background-primary)',
+			color: 'var(--text-normal)',
+			boxSizing: 'border-box'
+		});
 
 		const buttonsContainer = document.createElement('div');
-		buttonsContainer.style.cssText = 'display: flex; gap: 8px; justify-content: flex-end;';
+		setCssProps(buttonsContainer, {
+			display: 'flex',
+			gap: '8px',
+			justifyContent: 'flex-end'
+		});
 
 		const cancelBtn = document.createElement('button');
 		cancelBtn.textContent = 'Cancel';
 		cancelBtn.className = 'mod-cta';
-		cancelBtn.style.cssText = `
-			padding: 6px 12px;
-			cursor: pointer;
-		`;
+		setCssProps(cancelBtn, {
+			padding: '6px 12px',
+			cursor: 'pointer'
+		});
 		cancelBtn.addEventListener('click', () => dialog.remove());
 
 		const okBtn = document.createElement('button');
 		okBtn.textContent = 'OK';
 		okBtn.className = 'mod-cta';
-		okBtn.style.cssText = `
-			padding: 6px 12px;
-			cursor: pointer;
-		`;
-		okBtn.addEventListener('click', async () => {
+		setCssProps(okBtn, {
+			padding: '6px 12px',
+			cursor: 'pointer'
+		});
+		okBtn.addEventListener('click', () => {
 			const newEmoji = input.value.trim();
 			if (!newEmoji) {
 				new Notice('Please enter an emoji or text');
@@ -1206,9 +1214,9 @@ export default class TaskNotesPlugin extends Plugin {
 
 			// Update task with new emoji
 			if (match) {
-				await this.changeTaskStatus(file, newEmoji);
+				void this.changeTaskStatus(file, newEmoji);
 			} else {
-				await this.convertToTask(file, newEmoji);
+				void this.convertToTask(file, newEmoji);
 			}
 		});
 
@@ -1223,7 +1231,7 @@ export default class TaskNotesPlugin extends Plugin {
 		input.focus();
 
 		// Allow Enter key to submit
-		input.addEventListener('keypress', async (e) => {
+		input.addEventListener('keypress', (e) => {
 			if (e.key === 'Enter') {
 				const newEmoji = input.value.trim();
 				if (!newEmoji) {
@@ -1234,9 +1242,9 @@ export default class TaskNotesPlugin extends Plugin {
 				dialog.remove();
 
 				if (match) {
-					await this.changeTaskStatus(file, newEmoji);
+					void this.changeTaskStatus(file, newEmoji);
 				} else {
-					await this.convertToTask(file, newEmoji);
+					void this.convertToTask(file, newEmoji);
 				}
 			}
 		});
@@ -1454,37 +1462,39 @@ export default class TaskNotesPlugin extends Plugin {
 	/**
 	 * Convert a regular file to a task by adding emoji prefix
 	 */
-	private async convertToTask(file: TFile, emoji: string) {
-		new TaskPropertiesModal(this.app, emoji, file.basename, this.settings, async (props) => {
-			// Get the appropriate format template
-			let format = this.settings.uncheckedTaskFormat;
-			if (emoji === TASK_EMOJIS.SCHEDULED) {
-				format = this.settings.scheduledTaskFormat;
-			} else if (emoji === TASK_EMOJIS.CHECKED) {
-				format = this.settings.completedTaskFormat;
-			} else if (emoji === TASK_EMOJIS.UNIMPORTANT) {
-				format = this.settings.cancelledTaskFormat;
-			}
-			
-			const taskName = generateTaskName(props, format);
-			const cleanEmoji = normalizeEmoji(emoji);
-			const newName = `${cleanEmoji} ${taskName.trim()}`.replace(/\s+/g, ' ');
-			const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
-
-			try {
-				// Apply template before renaming if enabled
-				if (this.settings.applyTemplateOnConvert) {
-					await this.applyTemplateToFile(file, emoji, true);
+	private convertToTask(file: TFile, emoji: string) {
+		new TaskPropertiesModal(this.app, emoji, file.basename, this.settings, (props) => {
+			void (async () => {
+				// Get the appropriate format template
+				let format = this.settings.uncheckedTaskFormat;
+				if (emoji === TASK_EMOJIS.SCHEDULED) {
+					format = this.settings.scheduledTaskFormat;
+				} else if (emoji === TASK_EMOJIS.CHECKED) {
+					format = this.settings.completedTaskFormat;
+				} else if (emoji === TASK_EMOJIS.UNIMPORTANT) {
+					format = this.settings.cancelledTaskFormat;
 				}
 				
-				// Then rename the file
-				await this.app.fileManager.renameFile(file, newPath);
-				
-				new Notice(`Converted to task: ${newName}`);
-			} catch (error) {
-				new Notice(`Failed to convert file: ${error.message}`);
-				console.error('Error converting file:', error);
-			}
+				const taskName = generateTaskName(props, format);
+				const cleanEmoji = normalizeEmoji(emoji);
+				const newName = `${cleanEmoji} ${taskName.trim()}`.replace(/\s+/g, ' ');
+				const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
+
+				try {
+					// Apply template before renaming if enabled
+					if (this.settings.applyTemplateOnConvert) {
+						await this.applyTemplateToFile(file, emoji, true);
+					}
+					
+					// Then rename the file
+					await this.app.fileManager.renameFile(file, newPath);
+					
+					new Notice(`Converted to task: ${newName}`);
+				} catch (error) {
+					new Notice(`Failed to convert file: ${error.message}`);
+					console.error('Error converting file:', error);
+				}
+			})();
 		}).open();
 	}
 
@@ -1781,7 +1791,7 @@ class TaskNotesSettingTab extends PluginSettingTab {
 		// Apply button for format settings
 		new Setting(containerEl)
 			.addButton(button => button
-				.setButtonText('Apply Format Changes')
+				.setButtonText('Apply format changes')
 				.setCta()
 				.onClick(async () => {
 					await this.plugin.saveSettings();
@@ -1789,7 +1799,7 @@ class TaskNotesSettingTab extends PluginSettingTab {
 				}));
 
 		// Template application settings
-		new Setting(containerEl).setName('Template settings').setHeading();
+		new Setting(containerEl).setName('Template application').setHeading();
 
 		// Enable/disable template application
 		new Setting(containerEl)
