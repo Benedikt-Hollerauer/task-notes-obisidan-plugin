@@ -60,7 +60,45 @@ const TASK_EMOJIS = {
 	UNIMPORTANT: '❌'
 } as const;
 
-const TASK_EMOJI_REGEX = /^([\u25FB\uFE0F]|[\u25FB]|[\ud83d\udcc5]|[\u2705]|[\u274c])\s+(.+)$/;
+// Simple regex to check if a filename has a task emoji prefix
+const TASK_EMOJI_REGEX = /^(?:[\u25FB]\uFE0F?|\ud83d\udcc5|\u2705|\u274c)\s+/u;
+
+/**
+ * Extract the emoji from a task filename
+ */
+function extractTaskEmoji(filename: string): string | null {
+	const emojis = [TASK_EMOJIS.UNCHECKED, TASK_EMOJIS.SCHEDULED, TASK_EMOJIS.CHECKED, TASK_EMOJIS.UNIMPORTANT];
+	for (const emoji of emojis) {
+		const normalized = normalizeEmoji(emoji);
+		if (filename.startsWith(emoji + ' ') || filename.startsWith(normalized + ' ')) {
+			return emoji;
+		}
+	}
+	return null;
+}
+
+/**
+ * Extract the task name (without emoji) from a task filename
+ */
+function extractTaskName(filename: string): string {
+	const emoji = extractTaskEmoji(filename);
+	if (!emoji) return filename;
+	
+	// Remove emoji and any variation selectors
+	let taskName = filename.replace(TASK_EMOJI_REGEX, '');
+	// Clean up any invisible chars
+	taskName = taskName.replace(/^[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C\uFE0F\s]+/u, '').trim();
+	// Also strip any additional emojis that might have been accidentally added
+	taskName = taskName.replace(/^(?:[\u25FB]\uFE0F?|\ud83d\udcc5|\u2705|\u274c)\s*/u, '');
+	return taskName.trim();
+}
+
+/**
+ * Check if a filename has a task emoji prefix
+ */
+function hasTaskEmoji(filename: string): boolean {
+	return TASK_EMOJI_REGEX.test(filename);
+}
 
 /**
  * Clean up task name by removing any embedded invisible characters (but not regular spaces)
@@ -352,7 +390,7 @@ class TaskPropertiesModal extends Modal {
 		const actionGroup = form.createDiv({ cls: 'task-modal-input-group' });
 		actionGroup.createEl('label', { text: labels.action });
 		const actionInput = actionGroup.createEl('input', { type: 'text', cls: 'task-modal-text-input' });
-		actionInput.placeholder = 'E.g., Buy, Finish, Complete';
+		actionInput.placeholder = 'E.g., buy, finish, complete';
 		actionInput.required = true;
 
 		// Amount input
@@ -592,14 +630,13 @@ export default class TaskNotesPlugin extends Plugin {
 		// (which can cause an observer-triggered mutation loop and freeze the UI).
 		const existingCheckbox = fileItem.querySelector('.task-notes-checkbox');
 
-		const match = file.basename.match(TASK_EMOJI_REGEX);
-		if (!match) {
+		if (!hasTaskEmoji(file.basename)) {
 			// If no task emoji but a checkbox exists, remove it once.
 			if (existingCheckbox) existingCheckbox.remove();
 			return;
 		}
 
-		let [, emoji] = match;
+		let emoji = extractTaskEmoji(file.basename) || '';
 		emoji = normalizeEmoji(emoji);
 
 		// If an identical checkbox is already present, do nothing.
@@ -643,15 +680,11 @@ export default class TaskNotesPlugin extends Plugin {
 		container.className = 'task-notes-property-inputs';
 		container.setAttribute('data-task-path', file.path);
 
-		const match = file.basename.match(TASK_EMOJI_REGEX);
-		if (!match) {
+		if (!hasTaskEmoji(file.basename)) {
 			return container;
 		}
 
-		// Clean up any variation selectors or invisible chars that might have crept into the task name
-		let taskName = match[2].replace(/^[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C\uFE0F\s]+/u, '').trim();
-		// Also strip any additional emojis that might have been accidentally added
-		taskName = taskName.replace(/^(?:[\u25FB][\uFE0F]?|[\u25FB]|[\ud83d][\udcc5]|[\u2705]|[\u274c])\s*/, '');
+		const taskName = extractTaskName(file.basename);
 		const isEvent = normalizeEmoji(emoji) === normalizeEmoji(TASK_EMOJIS.SCHEDULED);
 		const props = parseTaskProperties(taskName, isEvent);
 
@@ -800,8 +833,7 @@ export default class TaskNotesPlugin extends Plugin {
 		// Normalize the emoji right at the start
 		const normalizedEmoji = normalizeEmoji(emoji);
 		
-		const match = file.basename.match(TASK_EMOJI_REGEX);
-		if (!match) {
+		if (!hasTaskEmoji(file.basename)) {
 			return;
 		}
 
@@ -949,12 +981,11 @@ export default class TaskNotesPlugin extends Plugin {
 			return;
 		}
 
-		const match = file.basename.match(TASK_EMOJI_REGEX);
-		if (!match) {
+		if (!hasTaskEmoji(file.basename)) {
 			return;
 		}
 
-		let [, emoji] = match;
+		let emoji = extractTaskEmoji(file.basename) || '';
 		emoji = normalizeEmoji(emoji);
 
 		// Create wrapper for checkbox and inputs in footer
@@ -1052,7 +1083,8 @@ export default class TaskNotesPlugin extends Plugin {
 			}
 		}
 
-		const newName = file.basename.replace(TASK_EMOJI_REGEX, `${newEmoji} $2`).trim();
+		const taskName = extractTaskName(file.basename);
+		const newName = `${newEmoji} ${taskName}`.trim();
 		const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
 
 		try {
@@ -1099,16 +1131,15 @@ export default class TaskNotesPlugin extends Plugin {
 	private showContextMenuForFile(file: TFile, e: MouseEvent, currentEmoji: string, _isTitle: boolean) {
 		const menu = new Menu();
 
-		const match = file.basename.match(TASK_EMOJI_REGEX);
-		const hasTaskEmoji = !!match;
+		const hasTaskEmojiPrefix = hasTaskEmoji(file.basename);
 
-		if (!hasTaskEmoji) {
+		if (!hasTaskEmojiPrefix) {
 			menu.addItem(item => item.setTitle('Convert to unchecked task ◻️').setIcon('checkbox-glyph').onClick(() => { this.convertToTask(file, TASK_EMOJIS.UNCHECKED); }));
 			menu.addItem(item => item.setTitle('Convert to scheduled task 📅').setIcon('calendar-glyph').onClick(() => { this.convertToTask(file, TASK_EMOJIS.SCHEDULED); }));
 			menu.addItem(item => item.setTitle('Convert to completed task ✅').setIcon('checkmark').onClick(() => { this.convertToTask(file, TASK_EMOJIS.CHECKED); }));
 			menu.addItem(item => item.setTitle('Convert to cancelled ❌').setIcon('cross').onClick(() => { this.convertToTask(file, TASK_EMOJIS.UNIMPORTANT); }));
 		} else {
-			let current = match[1];
+			let current = extractTaskEmoji(file.basename) || '';
 			current = normalizeEmoji(current);
 
 			menu.addItem(item => item.setTitle('Remove task status').setIcon('cross').onClick(async () => { await this.removeTaskEmoji(file); }));
@@ -1138,8 +1169,7 @@ export default class TaskNotesPlugin extends Plugin {
 	private showCustomEmojiDialog(file: TFile) {
 		// Create a simple prompt for emoji
 		// Since Obsidian doesn't have built-in emoji picker, we'll just accept any text input
-		const match = file.basename.match(TASK_EMOJI_REGEX);
-		let currentEmoji = match ? match[1] : '';
+		let currentEmoji = extractTaskEmoji(file.basename) || '';
 		currentEmoji = normalizeEmoji(currentEmoji);
 
 		const dialog = document.createElement('div');
@@ -1213,7 +1243,7 @@ export default class TaskNotesPlugin extends Plugin {
 			dialog.remove();
 
 			// Update task with new emoji
-			if (match) {
+			if (hasTaskEmoji(file.basename)) {
 				void this.changeTaskStatus(file, newEmoji);
 			} else {
 				void this.convertToTask(file, newEmoji);
@@ -1241,7 +1271,7 @@ export default class TaskNotesPlugin extends Plugin {
 
 				dialog.remove();
 
-				if (match) {
+				if (hasTaskEmoji(file.basename)) {
 					void this.changeTaskStatus(file, newEmoji);
 				} else {
 					void this.convertToTask(file, newEmoji);
@@ -1330,10 +1360,9 @@ export default class TaskNotesPlugin extends Plugin {
 
 			// Only act when a transition from no unchecked -> has unchecked occurs
 			if (!prev && hasUnchecked) {
-				const match = file.basename.match(TASK_EMOJI_REGEX);
-				if (match) {
-					let matchedEmoji = match[1];
-					matchedEmoji = normalizeEmoji(matchedEmoji);
+				const fileEmoji = extractTaskEmoji(file.basename);
+				if (fileEmoji) {
+					const matchedEmoji = normalizeEmoji(fileEmoji);
 
 					if (matchedEmoji === TASK_EMOJIS.CHECKED) {
 						// Reopen the task by switching to unchecked
@@ -1358,10 +1387,9 @@ export default class TaskNotesPlugin extends Plugin {
 			return;
 		}
 
-		const match = file.basename.match(TASK_EMOJI_REGEX);
-		const hasTaskEmoji = !!match;
+		const hasTaskEmojiPrefix = hasTaskEmoji(file.basename);
 
-		if (!hasTaskEmoji) {
+		if (!hasTaskEmojiPrefix) {
 			// Add options to convert to task or event
 			menu.addItem((item) => {
 				item
@@ -1410,7 +1438,7 @@ export default class TaskNotesPlugin extends Plugin {
 			});
 
 			// Add options to change task status
-			let currentEmoji = match[1];
+			let currentEmoji = extractTaskEmoji(file.basename) || '';
 			currentEmoji = normalizeEmoji(currentEmoji);
 			
 			if (currentEmoji !== TASK_EMOJIS.UNCHECKED) {
@@ -1502,12 +1530,11 @@ export default class TaskNotesPlugin extends Plugin {
 	 * Remove task emoji from filename
 	 */
 	private async removeTaskEmoji(file: TFile) {
-		const match = file.basename.match(TASK_EMOJI_REGEX);
-		if (!match) {
+		if (!hasTaskEmoji(file.basename)) {
 			return;
 		}
 
-		const [, , nameWithoutEmoji] = match;
+		const nameWithoutEmoji = extractTaskName(file.basename);
 		const newPath = file.parent ? `${file.parent.path}/${nameWithoutEmoji}.${file.extension}` : `${nameWithoutEmoji}.${file.extension}`;
 
 		try {
@@ -1523,8 +1550,7 @@ export default class TaskNotesPlugin extends Plugin {
 	 * Change task status emoji
 	 */
 	private async changeTaskStatus(file: TFile, newEmoji: string) {
-		const match = file.basename.match(TASK_EMOJI_REGEX);
-		if (!match) {
+		if (!hasTaskEmoji(file.basename)) {
 			return;
 		}
 
@@ -1537,7 +1563,7 @@ export default class TaskNotesPlugin extends Plugin {
 			}
 		}
 
-		const [, , nameWithoutEmoji] = match;
+		const nameWithoutEmoji = extractTaskName(file.basename);
 		const cleanEmoji = normalizeEmoji(newEmoji);
 		const newName = `${cleanEmoji} ${nameWithoutEmoji}`;
 		const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
@@ -1643,7 +1669,7 @@ export default class TaskNotesPlugin extends Plugin {
 	 */
 	private processTemplateVariables(content: string, file: TFile): string {
 		const now = new Date();
-		const fileName = file.basename.replace(TASK_EMOJI_REGEX, '$2');
+		const fileName = extractTaskName(file.basename);
 		
 		// Basic variable replacements
 		return content
