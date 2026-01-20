@@ -237,6 +237,19 @@ function generateTaskName(props: TaskProperties, format: string): string {
 }
 
 /**
+ * Get the configured name format for a task emoji
+ */
+function getTaskFormatByEmoji(emoji: string, settings: TaskNotesSettings): string {
+	const normalized = normalizeEmoji(emoji);
+
+	if (normalized === normalizeEmoji(TASK_EMOJIS.SCHEDULED)) return settings.scheduledTaskFormat;
+	if (normalized === normalizeEmoji(TASK_EMOJIS.CHECKED)) return settings.completedTaskFormat;
+	if (normalized === normalizeEmoji(TASK_EMOJIS.UNIMPORTANT)) return settings.cancelledTaskFormat;
+
+	return settings.uncheckedTaskFormat;
+}
+
+/**
  * Validate format template for duplicate placeholders
  * Returns error message if invalid, empty string if valid
  */
@@ -376,14 +389,7 @@ class TaskPropertiesModal extends Modal {
 		}
 
 		// Get dynamic labels based on format
-		let format = this.settings.uncheckedTaskFormat;
-		if (this.emoji === TASK_EMOJIS.SCHEDULED) {
-			format = this.settings.scheduledTaskFormat;
-		} else if (this.emoji === TASK_EMOJIS.CHECKED) {
-			format = this.settings.completedTaskFormat;
-		} else if (this.emoji === TASK_EMOJIS.UNIMPORTANT) {
-			format = this.settings.cancelledTaskFormat;
-		}
+		const format = getTaskFormatByEmoji(this.emoji, this.settings);
 		const labels = extractFieldLabels(format);
 
 		// Action words input
@@ -747,14 +753,7 @@ export default class TaskNotesPlugin extends Plugin {
 		}
 
 		// Get dynamic labels based on format
-		let format = this.settings.uncheckedTaskFormat;
-		if (emoji === TASK_EMOJIS.SCHEDULED) {
-			format = this.settings.scheduledTaskFormat;
-		} else if (emoji === TASK_EMOJIS.CHECKED) {
-			format = this.settings.completedTaskFormat;
-		} else if (emoji === TASK_EMOJIS.UNIMPORTANT) {
-			format = this.settings.cancelledTaskFormat;
-		}
+		const format = getTaskFormatByEmoji(emoji, this.settings);
 		const labels = extractFieldLabels(format);
 
 		// Action words input
@@ -897,14 +896,7 @@ export default class TaskNotesPlugin extends Plugin {
 		};
 
 		// Get the appropriate format template
-		let format = this.settings.uncheckedTaskFormat;
-		if (normalizedEmoji === normalizeEmoji(TASK_EMOJIS.SCHEDULED)) {
-			format = this.settings.scheduledTaskFormat;
-		} else if (normalizedEmoji === normalizeEmoji(TASK_EMOJIS.CHECKED)) {
-			format = this.settings.completedTaskFormat;
-		} else if (normalizedEmoji === normalizeEmoji(TASK_EMOJIS.UNIMPORTANT)) {
-			format = this.settings.cancelledTaskFormat;
-		}
+		const format = getTaskFormatByEmoji(normalizedEmoji, this.settings);
 
 		const newTaskName = generateTaskName(props, format);
 		// Remove any embedded variation selectors from the generated task name
@@ -1494,14 +1486,7 @@ export default class TaskNotesPlugin extends Plugin {
 		new TaskPropertiesModal(this.app, emoji, file.basename, this.settings, (props) => {
 			void (async () => {
 				// Get the appropriate format template
-				let format = this.settings.uncheckedTaskFormat;
-				if (emoji === TASK_EMOJIS.SCHEDULED) {
-					format = this.settings.scheduledTaskFormat;
-				} else if (emoji === TASK_EMOJIS.CHECKED) {
-					format = this.settings.completedTaskFormat;
-				} else if (emoji === TASK_EMOJIS.UNIMPORTANT) {
-					format = this.settings.cancelledTaskFormat;
-				}
+				const format = getTaskFormatByEmoji(emoji, this.settings);
 				
 				const taskName = generateTaskName(props, format);
 				const cleanEmoji = normalizeEmoji(emoji);
