@@ -47,9 +47,8 @@ function setCssProps(element: HTMLElement, styles: Record<string, string>): void
  * Normalize emoji by removing invisible characters (variation selectors, zero-width chars, etc.)
  */
 function normalizeEmoji(emoji: string): string {
-	// Remove variation selectors and other invisible Unicode characters, but NOT regular spaces
-	// Variation selector-16 (U+FE0F) and zero-width characters
-	return emoji.replace(/[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C\uFE0F]/gu, '');
+	// Remove invisible Unicode format characters (category Cf)
+	return emoji.replace(/\p{Cf}/gu, '');
 }
 
 // Task emoji constants
@@ -87,7 +86,8 @@ function extractTaskName(filename: string): string {
 	// Remove emoji and any variation selectors
 	let taskName = filename.replace(TASK_EMOJI_REGEX, '');
 	// Clean up any invisible chars
-	taskName = taskName.replace(/^[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C\s]+\uFE0F*/u, '').trim();
+	// Remove leading invisible Unicode format characters and spaces
+	taskName = taskName.replace(/^[\p{Cf}\s]+/u, '').trim();
 	// Also strip any additional emojis that might have been accidentally added
 	taskName = taskName.replace(/^(?:\u25FB\uFE0F?|\ud83d\udcc5|\u2705|\u274c)\s*/gu, '');
 	return taskName.trim();
@@ -104,8 +104,9 @@ function hasTaskEmoji(filename: string): boolean {
  * Clean up task name by removing any embedded invisible characters (but not regular spaces)
  */
 function cleanupTaskName(taskName: string): string {
-	// Remove invisible characters only, preserve the actual spacing
-	return taskName.replace(/[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C\uFE0F]/gu, '').trim();
+	// Remove invisible formatting characters (using Unicode property escapes)
+	// \p{Cf} matches all Unicode format characters (category Cf)
+	return taskName.replace(/\p{Cf}/gu, '').trim();
 }
 
 /**
