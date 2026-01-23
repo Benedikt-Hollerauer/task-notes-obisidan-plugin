@@ -164,6 +164,8 @@
     z-index: 1001 !important;
 }
 
+/* --- REMOVE: Do NOT set .modal-bg z-index here, let Obsidian handle it natively --- */
+/*
 .modal-bg {
     z-index: 1000 !important;
 }
