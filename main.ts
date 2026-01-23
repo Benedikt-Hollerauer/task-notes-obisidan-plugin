@@ -197,7 +197,7 @@ function parseTaskProperties(taskName: string, isEvent: boolean): TaskProperties
 }
 
 // Patch: make settings available globally for parseTaskProperties
-(window as any).taskNotesPluginSettings = DEFAULT_SETTINGS;
+((window as unknown) as Record<string, unknown>).taskNotesPluginSettings = DEFAULT_SETTINGS;
 
 /**
  * Generate task name from properties using format template
@@ -545,7 +545,7 @@ export default class TaskNotesPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
-		(window as any).taskNotesPluginSettings = this.settings; // always update global ref
+		((window as unknown) as Record<string, unknown>).taskNotesPluginSettings = this.settings; // always update global ref
 	}
 
 	onunload() {
