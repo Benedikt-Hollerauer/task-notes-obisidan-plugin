@@ -111,15 +111,12 @@ function cleanupTaskName(taskName: string): string {
 
 /**
  * Parse task name into properties
- * Format: "Action words - Amount - Amount outcome" (for non-events)
- * Format: "By YYYY-MM-DD, (at HH.MMh - YYYY-MM-DD) Action words - Amount - Amount outcome" (for events with time and date range)
+ * Robustly parses scheduled/event and regular tasks using strict regex for each format.
  */
 function parseTaskProperties(taskName: string, isEvent: boolean): TaskProperties {
-	// Clean up any invisible characters that might be embedded in the task name
 	taskName = cleanupTaskName(taskName);
-	
+
 	const cleanPlaceholder = (value: string): string => {
-		// If the value looks like a placeholder (e.g., {amount}), treat it as empty
 		if (value && /\{[^}]+\}/.test(value)) return '';
 		return value;
 	};
@@ -130,18 +127,16 @@ function parseTaskProperties(taskName: string, isEvent: boolean): TaskProperties
 		amountOutcome: ''
 	};
 
+	// 1. Strict scheduled event: By YYYY-MM-DD (at HH.MMh - YYYY-MM-DD), action - amount - outcome
 	if (isEvent) {
-		// Try to parse "By" format: By YYYY-MM-DD (optional time/range), action - amount - outcome
-		const byRegex = /^By\s+(\d{4}-\d{2}-\d{2})(?:\s+\((?:at\s+)?(\d{2}\.\d{2}h)?(?:\s*-\s*)?(\d{4}-\d{2}-\d{2})?\))?(?:,\s+)?(.+)$/;
-		const match = taskName.match(byRegex);
-
+		const eventRegex = /^By\s+(\d{4}-\d{2}-\d{2})\s*\(\s*(?:at\s+)?(\d{2}\.\d{2}h)?(?:\s*-\s*(\d{4}-\d{2}-\d{2}))?\s*\)\s*,?\s*(.+)$/;
+		const match = taskName.match(eventRegex);
 		if (match) {
 			props.startDate = cleanPlaceholder(match[1]);
 			props.time = match[2] ? cleanPlaceholder(match[2]) : undefined;
 			props.endDate = match[3] ? cleanPlaceholder(match[3]) : undefined;
 			const remainder = match[4];
 
-			// Now parse the remainder as: "Action words - Amount - Amount outcome"
 			const partRegex = /^(.+?)\s*-\s*(.+?)\s*-\s*(.+)$/;
 			const partMatch = remainder.match(partRegex);
 
@@ -150,90 +145,100 @@ function parseTaskProperties(taskName: string, isEvent: boolean): TaskProperties
 				props.amount = cleanPlaceholder(partMatch[2].trim());
 				props.amountOutcome = cleanPlaceholder(partMatch[3].trim());
 			} else {
-				// If parsing fails, treat entire remainder as action words
 				props.actionWords = cleanPlaceholder(remainder.trim());
 			}
-		} else {
-			// Fallback: try old format or treat as regular task format
+			return props;
+		}
+		// 2. Simpler scheduled event: By YYYY-MM-DD at HH.MMh, action - amount - outcome
+		const eventSimpleRegex = /^By\s+(\d{4}-\d{2}-\d{2})\s+at\s+(\d{2}\.\d{2}h)\s*,?\s*(.+)$/;
+		const matchSimple = taskName.match(eventSimpleRegex);
+		if (matchSimple) {
+			props.startDate = cleanPlaceholder(matchSimple[1]);
+			props.time = cleanPlaceholder(matchSimple[2]);
+			const remainder = matchSimple[3];
+
 			const partRegex = /^(.+?)\s*-\s*(.+?)\s*-\s*(.+)$/;
-			const partMatch = taskName.match(partRegex);
+			const partMatch = remainder.match(partRegex);
 
 			if (partMatch) {
 				props.actionWords = cleanPlaceholder(partMatch[1].trim());
 				props.amount = cleanPlaceholder(partMatch[2].trim());
 				props.amountOutcome = cleanPlaceholder(partMatch[3].trim());
 			} else {
-				props.actionWords = cleanPlaceholder(taskName.trim());
+				props.actionWords = cleanPlaceholder(remainder.trim());
 			}
+			return props;
 		}
-	} else {
-		// Non-event format: "Action words - Amount - Amount outcome"
-		const partRegex = /^(.+?)\s*-\s*(.+?)\s*-\s*(.+)$/;
-		const match = taskName.match(partRegex);
-
-		if (match) {
-			props.actionWords = cleanPlaceholder(match[1].trim());
-			props.amount = cleanPlaceholder(match[2].trim());
-			props.amountOutcome = cleanPlaceholder(match[3].trim());
-		} else {
-			props.actionWords = cleanPlaceholder(taskName.trim());
+		// 3. By YYYY-MM-DD, action - amount - outcome
+		const eventDateOnlyRegex = /^By\s+(\d{4}-\d{2}-\d{2})\s*,\s*(.+?)\s*-\s*(.+?)\s*-\s*(.+)$/;
+		const matchDateOnly = taskName.match(eventDateOnlyRegex);
+		if (matchDateOnly) {
+			props.startDate = cleanPlaceholder(matchDateOnly[1]);
+			props.actionWords = cleanPlaceholder(matchDateOnly[2]);
+			props.amount = cleanPlaceholder(matchDateOnly[3]);
+			props.amountOutcome = cleanPlaceholder(matchDateOnly[4]);
+			return props;
 		}
 	}
 
+	// 4. Regular task: action - amount - outcome
+	const partRegex = /^(.+?)\s*-\s*(.+?)\s*-\s*(.+)$/;
+	const match = taskName.match(partRegex);
+	if (match) {
+		props.actionWords = cleanPlaceholder(match[1].trim());
+		props.amount = cleanPlaceholder(match[2].trim());
+		props.amountOutcome = cleanPlaceholder(match[3].trim());
+		return props;
+	}
+
+	// 5. Fallback: just action
+	props.actionWords = cleanPlaceholder(taskName.trim());
 	return props;
 }
+
+// Patch: make settings available globally for parseTaskProperties
+(window as any).taskNotesPluginSettings = DEFAULT_SETTINGS;
 
 /**
  * Generate task name from properties using format template
  */
 function generateTaskName(props: TaskProperties, format: string): string {
-	// Strip any emoji prefix from the format (emojis are added by task type)
 	let result = format.replace(/^(?:◻️|✅|📅|❌)\s*/, '');
-	
-	
-	// Replace date/time placeholders (for scheduled tasks)
+
 	if (props.startDate) {
 		result = result.replace('{date}', props.startDate);
-		
-		// Build time portion
+
+		// Always add "at" before time if time is present
 		let timePart = '';
 		if (props.time) {
 			timePart = `at ${props.time}`;
 		}
 		result = result.replace('{time}', timePart);
-		
-		// Build range portion
+
+		// Always add " - " before end date if endDate is present
 		let rangePart = '';
 		if (props.endDate) {
-			if (props.time) rangePart = ' - ';
-			rangePart += props.endDate;
+			rangePart = `- ${props.endDate}`;
 		}
 		result = result.replace('{range}', rangePart);
 	} else {
-		// Remove date/time/range placeholders if not present
 		result = result.replace('{date}', '');
 		result = result.replace('{time}', '');
 		result = result.replace('{range}', '');
 	}
-	
-	// Replace action/amount/outcome placeholders
+
 	result = result.replace('{action}', props.actionWords);
 	result = result.replace('{amount}', props.amount);
 	result = result.replace('{outcome}', props.amountOutcome);
 
-	// Remove any remaining placeholders (e.g., if a value was left empty)
 	result = result.replace(/\{[^}]+\}/g, '');
-
-	// Remove empty parentheses (when time/range are not present)
 	result = result.replace(/\(\s*\)/g, '');
-	
-	// Remove spaces before closing paren or comma
 	result = result.replace(/\s+([,)])/g, '$1');
-	
-	// Clean up repeated dashes and spaces after placeholder removal
+	result = result.replace(/\bat\s+at\b/g, 'at');
 	result = result.replace(/-\s*-\s*/g, '-');
 	result = result.replace(/\s+/g, ' ').trim();
-	
+	result = result.replace(/-\s*$/, '');
+
 	return result;
 }
 
@@ -352,7 +357,7 @@ class TaskPropertiesModal extends Modal {
 		contentEl.empty();
 
 		contentEl.createEl('h2', { text: 'Create task' });
-		
+
 		// Show original name
 		if (this.originalName) {
 			const originalNameEl = contentEl.createDiv({ cls: 'task-modal-original-name' });
@@ -540,6 +545,7 @@ export default class TaskNotesPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+		(window as any).taskNotesPluginSettings = this.settings; // always update global ref
 	}
 
 	onunload() {
@@ -1140,7 +1146,7 @@ export default class TaskNotesPlugin extends Plugin {
 			if (current !== TASK_EMOJIS.UNCHECKED) menu.addItem(item => item.setTitle('Mark as unchecked ◻️').setIcon('checkbox-glyph').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.UNCHECKED); }));
 			if (current !== TASK_EMOJIS.SCHEDULED) menu.addItem(item => item.setTitle('Mark as scheduled 📅').setIcon('calendar-glyph').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.SCHEDULED); }));
 			if (current !== TASK_EMOJIS.CHECKED) menu.addItem(item => item.setTitle('Mark as completed ✅').setIcon('checkmark').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.CHECKED); }));
-			if (current !== TASK_EMOJIS.UNIMPORTANT) menu.addItem(item => item.setTitle('Mark as cancelled ❌').setIcon('cross').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.UNIMPORTANT); }));
+			if (current !== TASK_EMOJIS.UNIMPORTANT) menu.addItem(item => item.setTitle('Mark as unimportant ❌').setIcon('cross').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.UNIMPORTANT); }));
 		}
 
 		// Add option to use custom emoji

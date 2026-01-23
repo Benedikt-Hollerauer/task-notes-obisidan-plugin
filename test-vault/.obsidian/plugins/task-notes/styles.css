@@ -138,6 +138,7 @@
 }
 
 /* Suggestion container */
+.suggestion-container {
     position: absolute;
     background: var(--background-primary);
     border: 1px solid var(--background-modifier-border);
@@ -333,5 +334,4 @@
     border: none;
     border-radius: 4px;
     cursor: pointer;
-}
 }
