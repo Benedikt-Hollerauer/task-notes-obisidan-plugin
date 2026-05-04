@@ -9,8 +9,8 @@ NC='\033[0m' # No Color
 
 echo -e "${BLUE}Building Obsidian plugin inside Docker container...${NC}"
 
-# Run build inside container
-docker compose exec obsidian-plugin-dev npm run build
+# Install deps (cached in named volume after first run) then build
+docker compose run --rm obsidian-plugin-dev sh -c "npm install && npm run build"
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}Build completed successfully!${NC}"
@@ -24,15 +24,16 @@ if [ $? -eq 0 ]; then
         echo -e "${GREEN}Files copied successfully!${NC}"
     else
         echo -e "${RED}Failed to copy files!${NC}"
-        read -p "Press Enter to close..."
+        [ -t 0 ] && read -p "Press Enter to close..."
         exit 1
     fi
 else
     echo -e "${RED}Build failed!${NC}"
-    read -p "Press Enter to close..."
+    [ -t 0 ] && read -p "Press Enter to close..."
     exit 1
 fi
 
-# Pause before closing
+# Pause before closing (only when run interactively)
 echo ""
-read -p "Press Enter to close..."
+[ -t 0 ] && read -p "Press Enter to close..."
+exit 0

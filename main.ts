@@ -127,19 +127,11 @@ function parseTaskProperties(taskName: string, isEvent: boolean): TaskProperties
 		amountOutcome: ''
 	};
 
-	// 1. Strict scheduled event: By YYYY-MM-DD (at HH.MMh - YYYY-MM-DD), action - amount - outcome
 	if (isEvent) {
-		const eventRegex = /^By\s+(\d{4}-\d{2}-\d{2})\s*\(\s*(?:at\s+)?(\d{2}\.\d{2}h)?(?:\s*-\s*(\d{4}-\d{2}-\d{2}))?\s*\)\s*,?\s*(.+)$/;
-		const match = taskName.match(eventRegex);
-		if (match) {
-			props.startDate = cleanPlaceholder(match[1]);
-			props.time = match[2] ? cleanPlaceholder(match[2]) : undefined;
-			props.endDate = match[3] ? cleanPlaceholder(match[3]) : undefined;
-			const remainder = match[4];
-
+		// Helper: split "action - amount - outcome" remainder into the three props
+		const parseRemainder = (remainder: string) => {
 			const partRegex = /^(.+?)\s*-\s*(.+?)\s*-\s*(.+)$/;
 			const partMatch = remainder.match(partRegex);
-
 			if (partMatch) {
 				props.actionWords = cleanPlaceholder(partMatch[1].trim());
 				props.amount = cleanPlaceholder(partMatch[2].trim());
@@ -147,29 +139,51 @@ function parseTaskProperties(taskName: string, isEvent: boolean): TaskProperties
 			} else {
 				props.actionWords = cleanPlaceholder(remainder.trim());
 			}
+		};
+
+		// 1. Legacy format with parens: By YYYY-MM-DD (at HH.MMh - YYYY-MM-DD), action - amount - outcome
+		const eventParenRegex = /^By\s+(\d{4}-\d{2}-\d{2})\s*\(\s*(?:at\s+)?(\d{2}\.\d{2}h)?(?:\s*-\s*(\d{4}-\d{2}-\d{2}))?\s*\)\s*,?\s*(.+)$/;
+		const matchParen = taskName.match(eventParenRegex);
+		if (matchParen) {
+			props.startDate = cleanPlaceholder(matchParen[1]);
+			props.time = matchParen[2] ? cleanPlaceholder(matchParen[2]) : undefined;
+			props.endDate = matchParen[3] ? cleanPlaceholder(matchParen[3]) : undefined;
+			parseRemainder(matchParen[4]);
 			return props;
 		}
-		// 2. Simpler scheduled event: By YYYY-MM-DD at HH.MMh, action - amount - outcome
-		const eventSimpleRegex = /^By\s+(\d{4}-\d{2}-\d{2})\s+at\s+(\d{2}\.\d{2}h)\s*,?\s*(.+)$/;
-		const matchSimple = taskName.match(eventSimpleRegex);
-		if (matchSimple) {
-			props.startDate = cleanPlaceholder(matchSimple[1]);
-			props.time = cleanPlaceholder(matchSimple[2]);
-			const remainder = matchSimple[3];
 
-			const partRegex = /^(.+?)\s*-\s*(.+?)\s*-\s*(.+)$/;
-			const partMatch = remainder.match(partRegex);
-
-			if (partMatch) {
-				props.actionWords = cleanPlaceholder(partMatch[1].trim());
-				props.amount = cleanPlaceholder(partMatch[2].trim());
-				props.amountOutcome = cleanPlaceholder(partMatch[3].trim());
-			} else {
-				props.actionWords = cleanPlaceholder(remainder.trim());
-			}
+		// 2. No-parens, date + time + range: By YYYY-MM-DD at HH.MMh - YYYY-MM-DD, action - amount - outcome
+		const eventTimeRangeRegex = /^By\s+(\d{4}-\d{2}-\d{2})\s+at\s+(\d{2}\.\d{2}h)\s*-\s*(\d{4}-\d{2}-\d{2})\s*,\s*(.+)$/;
+		const matchTimeRange = taskName.match(eventTimeRangeRegex);
+		if (matchTimeRange) {
+			props.startDate = cleanPlaceholder(matchTimeRange[1]);
+			props.time = cleanPlaceholder(matchTimeRange[2]);
+			props.endDate = cleanPlaceholder(matchTimeRange[3]);
+			parseRemainder(matchTimeRange[4]);
 			return props;
 		}
-		// 3. By YYYY-MM-DD, action - amount - outcome
+
+		// 3. No-parens, date + time only: By YYYY-MM-DD at HH.MMh, action - amount - outcome
+		const eventTimeOnlyRegex = /^By\s+(\d{4}-\d{2}-\d{2})\s+at\s+(\d{2}\.\d{2}h)\s*,\s*(.+)$/;
+		const matchTimeOnly = taskName.match(eventTimeOnlyRegex);
+		if (matchTimeOnly) {
+			props.startDate = cleanPlaceholder(matchTimeOnly[1]);
+			props.time = cleanPlaceholder(matchTimeOnly[2]);
+			parseRemainder(matchTimeOnly[3]);
+			return props;
+		}
+
+		// 4. No-parens, date + range only: By YYYY-MM-DD - YYYY-MM-DD, action - amount - outcome
+		const eventRangeOnlyRegex = /^By\s+(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})\s*,\s*(.+)$/;
+		const matchRangeOnly = taskName.match(eventRangeOnlyRegex);
+		if (matchRangeOnly) {
+			props.startDate = cleanPlaceholder(matchRangeOnly[1]);
+			props.endDate = cleanPlaceholder(matchRangeOnly[2]);
+			parseRemainder(matchRangeOnly[3]);
+			return props;
+		}
+
+		// 5. Date only: By YYYY-MM-DD, action - amount - outcome
 		const eventDateOnlyRegex = /^By\s+(\d{4}-\d{2}-\d{2})\s*,\s*(.+?)\s*-\s*(.+?)\s*-\s*(.+)$/;
 		const matchDateOnly = taskName.match(eventDateOnlyRegex);
 		if (matchDateOnly) {
@@ -205,39 +219,53 @@ function parseTaskProperties(taskName: string, isEvent: boolean): TaskProperties
 function generateTaskName(props: TaskProperties, format: string): string {
 	let result = format.replace(/^(?:◻️|✅|📅|❌)\s*/, '');
 
+	// Capitalize action for regular tasks, lowercase for events (action follows date in events)
+	const isEvent = format.includes('{date}');
+	let actionWords = props.actionWords;
+	if (actionWords) {
+		if (isEvent) {
+			actionWords = actionWords.charAt(0).toLowerCase() + actionWords.slice(1);
+		} else {
+			actionWords = actionWords.charAt(0).toUpperCase() + actionWords.slice(1);
+		}
+	}
+
 	if (props.startDate) {
 		result = result.replace('{date}', props.startDate);
-
-		// Always add "at" before time if time is present
-		let timePart = '';
-		if (props.time) {
-			timePart = `at ${props.time}`;
-		}
-		result = result.replace('{time}', timePart);
-
-		// Always add " - " before end date if endDate is present
-		let rangePart = '';
-		if (props.endDate) {
-			rangePart = `- ${props.endDate}`;
-		}
-		result = result.replace('{range}', rangePart);
+		// Replace with raw values — the format template already contains literal "at" and " - "
+		result = result.replace('{time}', props.time || '');
+		result = result.replace('{range}', props.endDate || '');
 	} else {
 		result = result.replace('{date}', '');
 		result = result.replace('{time}', '');
 		result = result.replace('{range}', '');
 	}
 
-	result = result.replace('{action}', props.actionWords);
+	result = result.replace('{action}', actionWords);
 	result = result.replace('{amount}', props.amount);
 	result = result.replace('{outcome}', props.amountOutcome);
 
 	result = result.replace(/\{[^}]+\}/g, '');
+
+	// 1. Strip parentheses from the time/range block entirely — parens are never wanted.
+	//    "(at 13.27h - 2026-01-18)" → "at 13.27h - 2026-01-18"
+	//    "(at  - )"                 → "at  - "
+	result = result.replace(/\((at[^)]*)\)/g, '$1');
+
+	// 2. Remove orphaned "at" when the time value is absent
+	//    "at  -" → "-"  /  "at  ," → ","
+	result = result.replace(/\bat\s+(?=[-,])/g, '');
+
+	// 3. Remove trailing " - " immediately before a comma when range is absent
+	//    "at 13.27h - ," → "at 13.27h,"
+	result = result.replace(/\s*-\s*,/g, ',');
+
 	result = result.replace(/\(\s*\)/g, '');
 	result = result.replace(/\s+([,)])/g, '$1');
-	result = result.replace(/\bat\s+at\b/g, 'at');
 	result = result.replace(/-\s*-\s*/g, '-');
 	result = result.replace(/\s+/g, ' ').trim();
-	result = result.replace(/-\s*$/, '');
+	result = result.replace(/-\s*$/, '').trim();
+	result = result.replace(/,\s*$/, '').trim();
 
 	return result;
 }
@@ -353,6 +381,17 @@ class TaskPropertiesModal extends Modal {
 	}
 
 	onOpen() {
+		// Prevent Obsidian's backdrop-click close.
+		// Obsidian's close listener sits on bgEl (the overlay). We intercept in capture
+		// phase on containerEl — before the event reaches bgEl — and block any click that
+		// lands outside the modal box (contentEl.parentElement = the white dialog element).
+		this.containerEl.addEventListener('click', (e: MouseEvent) => {
+			const insideModal = this.contentEl.parentElement?.contains(e.target as Node) ?? false;
+			if (!insideModal) {
+				e.stopPropagation();
+			}
+		}, true);
+
 		const { contentEl } = this;
 		contentEl.empty();
 
@@ -449,6 +488,20 @@ class TaskPropertiesModal extends Modal {
 
 			this.onSubmit(props);
 			this.close();
+		});
+
+		// Pressing Enter in any text input submits the form instead of triggering
+		// Obsidian's modal-level handlers or the cancel button.
+		form.addEventListener('keydown', (e: KeyboardEvent) => {
+			if (e.key === 'Enter') {
+				e.stopPropagation();
+				const target = e.target as HTMLElement;
+				if (target.tagName === 'INPUT' && target.getAttribute('type') === 'text') {
+					e.preventDefault();
+					const submitBtn = form.querySelector('button[type="submit"]') as HTMLButtonElement | null;
+					if (submitBtn) submitBtn.click();
+				}
+			}
 		});
 
 		// Focus first input
@@ -1068,6 +1121,25 @@ export default class TaskNotesPlugin extends Plugin {
 	}
 
 	/**
+	 * When switching FROM a scheduled event to any other type, strip the date/time prefix
+	 * and reformat the name using only action/amount/outcome.
+	 * For all other conversions the name is kept as-is.
+	 */
+	private reformatNameForNewType(rawTaskName: string, fromEmoji: string, toEmoji: string): string {
+		const fromIsEvent = normalizeEmoji(fromEmoji) === normalizeEmoji(TASK_EMOJIS.SCHEDULED);
+		const toIsEvent   = normalizeEmoji(toEmoji)   === normalizeEmoji(TASK_EMOJIS.SCHEDULED);
+
+		if (fromIsEvent && !toIsEvent) {
+			// Parse the event name and extract only the action/amount/outcome fields
+			const parsed = parseTaskProperties(rawTaskName, true);
+			const newFormat = getTaskFormatByEmoji(normalizeEmoji(toEmoji), this.settings);
+			return generateTaskName(parsed, newFormat);
+		}
+
+		return rawTaskName;
+	}
+
+	/**
 	 * Handle checkbox click in the title
 	 */
 	private async handleTitleCheckboxClick(file: TFile, currentEmoji: string) {
@@ -1082,8 +1154,9 @@ export default class TaskNotesPlugin extends Plugin {
 			}
 		}
 
-		const taskName = extractTaskName(file.basename);
-		const newName = `${newEmoji} ${taskName}`.trim();
+		const rawTaskName = extractTaskName(file.basename);
+		const newTaskName = this.reformatNameForNewType(rawTaskName, currentEmoji, newEmoji);
+		const newName = `${newEmoji} ${newTaskName}`.trim();
 		const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
 
 		try {
@@ -1105,7 +1178,7 @@ export default class TaskNotesPlugin extends Plugin {
 			if (!hasAnyTodo) return true;
 
 			// If there is at least one todo, ensure none are unchecked "[ ]"
-			const hasUnchecked = /(^|\n)\s*[-*+]\s+\[\s?\]\s+/m.test(content);
+			const hasUnchecked = /(^|\n)\s*[-*+]\s+\[\s?\]/m.test(content);
 			return !hasUnchecked;
 		} catch (e) {
 			console.error('Error reading file to check todos:', e);
@@ -1338,7 +1411,7 @@ export default class TaskNotesPlugin extends Plugin {
 	private async refreshFileUncheckedState(file: TFile) {
 		try {
 			const content = await this.app.vault.read(file);
-			const hasUnchecked = /(^|\n)\s*[-*+]\s+\[\s?\]\s+/m.test(content);
+			const hasUnchecked = /(^|\n)\s*[-*+]\s+\[\s?\]/m.test(content);
 			this.fileUncheckedState.set(file.path, hasUnchecked);
 		} catch (e) {
 			console.error('Error refresh file unchecked state:', e);
@@ -1350,7 +1423,7 @@ export default class TaskNotesPlugin extends Plugin {
 		let prev = this.fileUncheckedState.get(file.path);
 		try {
 			const content = await this.app.vault.read(file);
-			const hasUnchecked = /(^|\n)\s*[-*+]\s+\[\s?\]\s+/m.test(content);
+			const hasUnchecked = /(^|\n)\s*[-*+]\s+\[\s?\]/m.test(content);
 			// If we don't have previous state (e.g., very first observed edit), initialize it
 			if (typeof prev !== 'boolean') {
 				this.fileUncheckedState.set(file.path, hasUnchecked);
@@ -1555,9 +1628,11 @@ export default class TaskNotesPlugin extends Plugin {
 			}
 		}
 
-		const nameWithoutEmoji = extractTaskName(file.basename);
-		const cleanEmoji = normalizeEmoji(newEmoji);
-		const newName = `${cleanEmoji} ${nameWithoutEmoji}`;
+		const currentEmoji = extractTaskEmoji(file.basename) || '';
+		const rawTaskName  = extractTaskName(file.basename);
+		const cleanEmoji   = normalizeEmoji(newEmoji);
+		const newTaskName  = this.reformatNameForNewType(rawTaskName, currentEmoji, cleanEmoji);
+		const newName      = `${cleanEmoji} ${newTaskName}`;
 		const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
 
 		try {
@@ -1641,14 +1716,17 @@ export default class TaskNotesPlugin extends Plugin {
 			
 			// Read current file content
 			const currentContent = await this.app.vault.read(file);
-			
-			// Apply template if file is empty or if forced (on conversion)
-			if (forceApply || currentContent.trim().length === 0) {
-				// Process template variables (basic support)
-				const processedContent = this.processTemplateVariables(templateContent, file);
 
+			const processedContent = this.processTemplateVariables(templateContent, file);
+
+			if (currentContent.trim().length === 0) {
+				// File is empty — replace with template
 				await this.app.vault.modify(file, processedContent);
 				new Notice('Template applied');
+			} else if (forceApply) {
+				// File already has content — append template below existing content
+				await this.app.vault.modify(file, currentContent + '\n\n' + processedContent);
+				new Notice('Template appended');
 			}
 		} catch (error) {
 			console.error('Error applying template:', error);
