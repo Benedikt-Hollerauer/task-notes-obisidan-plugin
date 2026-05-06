@@ -498,7 +498,7 @@ class TaskPropertiesModal extends Modal {
 				const target = e.target as HTMLElement;
 				if (target.tagName === 'INPUT' && target.getAttribute('type') === 'text') {
 					e.preventDefault();
-					const submitBtn = form.querySelector('button[type="submit"]') as HTMLButtonElement | null;
+					const submitBtn = form.querySelector<HTMLButtonElement>('button[type="submit"]');
 					if (submitBtn) submitBtn.click();
 				}
 			}
