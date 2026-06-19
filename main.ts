@@ -104,9 +104,22 @@ function hasTaskEmoji(filename: string): boolean {
  * Clean up task name by removing any embedded invisible characters (but not regular spaces)
  */
 function cleanupTaskName(taskName: string): string {
-	// Remove invisible formatting characters (using Unicode property escapes)
-	// \p{Cf} matches all Unicode format characters (category Cf)
 	return taskName.replace(/\p{Cf}/gu, '').trim();
+}
+
+/**
+ * Extract and normalize the task emoji from a filename in one step
+ */
+function getNormalizedEmoji(filename: string): string {
+	return normalizeEmoji(extractTaskEmoji(filename) || '');
+}
+
+/**
+ * Show an error notice to the user and log it to the console
+ */
+function notifyError(userMessage: string, error?: unknown): void {
+	new Notice(userMessage);
+	if (error !== undefined) console.error(userMessage, error);
 }
 
 /**
@@ -246,6 +259,9 @@ function generateTaskName(props: TaskProperties, format: string): string {
 	result = result.replace('{outcome}', props.amountOutcome);
 
 	result = result.replace(/\{[^}]+\}/g, '');
+
+	// Strip orphaned "By ," prefix that appears when a date-prefixed format is used but no date is present
+	result = result.replace(/^By\s*,\s*/i, '').trim();
 
 	// 1. Strip parentheses from the time/range block entirely — parens are never wanted.
 	//    "(at 13.27h - 2026-01-18)" → "at 13.27h - 2026-01-18"
@@ -702,8 +718,7 @@ export default class TaskNotesPlugin extends Plugin {
 			return;
 		}
 
-		let emoji = extractTaskEmoji(file.basename) || '';
-		emoji = normalizeEmoji(emoji);
+		const emoji = getNormalizedEmoji(file.basename);
 
 		// If an identical checkbox is already present, do nothing.
 		if (existingCheckbox) {
@@ -963,14 +978,8 @@ export default class TaskNotesPlugin extends Plugin {
 		const cleanedTaskName = cleanupTaskName(newTaskName);
 		// Ensure exactly one space between emoji and task name
 		const newName = `${normalizedEmoji} ${cleanedTaskName}`.replace(/\s+/g, ' ').trim();
-		const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
-
-		try {
-			await this.app.fileManager.renameFile(file, newPath);
+		if (await this.renameTaskFile(file, newName)) {
 			new Notice('Task updated successfully');
-		} catch (error) {
-			new Notice(`Failed to update task: ${error.message}`);
-			console.error('Error updating task properties:', error);
 		}
 	}
 
@@ -998,8 +1007,7 @@ export default class TaskNotesPlugin extends Plugin {
 				try {
 					this.showContextMenuForFile(fileForMenuRef, e, emoji, false);
 				} catch (err) {
-					console.error('Error showing context menu for file checkbox:', err);
-					new Notice('Failed to open context menu');
+					notifyError('Failed to open context menu', err);
 				}
 			});
 		}
@@ -1037,8 +1045,7 @@ export default class TaskNotesPlugin extends Plugin {
 			return;
 		}
 
-		let emoji = extractTaskEmoji(file.basename) || '';
-		emoji = normalizeEmoji(emoji);
+		const emoji = getNormalizedEmoji(file.basename);
 
 		// Create wrapper for checkbox and inputs in footer
 		const wrapper = document.createElement('div');
@@ -1130,9 +1137,12 @@ export default class TaskNotesPlugin extends Plugin {
 		const toIsEvent   = normalizeEmoji(toEmoji)   === normalizeEmoji(TASK_EMOJIS.SCHEDULED);
 
 		if (fromIsEvent && !toIsEvent) {
-			// Parse the event name and extract only the action/amount/outcome fields
 			const parsed = parseTaskProperties(rawTaskName, true);
-			const newFormat = getTaskFormatByEmoji(normalizeEmoji(toEmoji), this.settings);
+			let newFormat = getTaskFormatByEmoji(normalizeEmoji(toEmoji), this.settings);
+			// Preserve the date prefix when converting from a scheduled event
+			if (parsed.startDate && !newFormat.includes('{date}')) {
+				newFormat = `By {date}, ${newFormat}`;
+			}
 			return generateTaskName(parsed, newFormat);
 		}
 
@@ -1157,14 +1167,7 @@ export default class TaskNotesPlugin extends Plugin {
 		const rawTaskName = extractTaskName(file.basename);
 		const newTaskName = this.reformatNameForNewType(rawTaskName, currentEmoji, newEmoji);
 		const newName = `${newEmoji} ${newTaskName}`.trim();
-		const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
-
-		try {
-			await this.app.fileManager.renameFile(file, newPath);
-		} catch (error) {
-			new Notice(`Failed to rename file: ${error.message}`);
-			console.error('Error renaming file:', error);
-		}
+		await this.renameTaskFile(file, newName);
 	}
 
 	/**
@@ -1197,41 +1200,41 @@ export default class TaskNotesPlugin extends Plugin {
 		return TASK_EMOJIS.CHECKED;
 	}
 
+	private addConvertMenuItems(menu: Menu, file: TFile): void {
+		menu.addItem(item => item.setTitle('Convert to unchecked task ◻️').setIcon('checkbox-glyph').onClick(() => { this.convertToTask(file, TASK_EMOJIS.UNCHECKED); }));
+		menu.addItem(item => item.setTitle('Convert to scheduled task 📅').setIcon('calendar-glyph').onClick(() => { this.convertToTask(file, TASK_EMOJIS.SCHEDULED); }));
+		menu.addItem(item => item.setTitle('Convert to completed task ✅').setIcon('checkmark').onClick(() => { this.convertToTask(file, TASK_EMOJIS.CHECKED); }));
+		menu.addItem(item => item.setTitle('Convert to unimportant ❌').setIcon('cross').onClick(() => { this.convertToTask(file, TASK_EMOJIS.UNIMPORTANT); }));
+	}
+
+	private addStatusChangeMenuItems(menu: Menu, file: TFile): void {
+		const current = getNormalizedEmoji(file.basename);
+		menu.addItem(item => item.setTitle('Remove task status').setIcon('cross').onClick(async () => { await this.removeTaskEmoji(file); }));
+		if (current !== TASK_EMOJIS.UNCHECKED)    menu.addItem(item => item.setTitle('Mark as unchecked ◻️').setIcon('checkbox-glyph').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.UNCHECKED); }));
+		if (current !== TASK_EMOJIS.SCHEDULED)    menu.addItem(item => item.setTitle('Mark as scheduled 📅').setIcon('calendar-glyph').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.SCHEDULED); }));
+		if (current !== TASK_EMOJIS.CHECKED)      menu.addItem(item => item.setTitle('Mark as completed ✅').setIcon('checkmark').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.CHECKED); }));
+		if (current !== TASK_EMOJIS.UNIMPORTANT)  menu.addItem(item => item.setTitle('Mark as unimportant ❌').setIcon('cross').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.UNIMPORTANT); }));
+	}
+
 	/**
 	 * Show context menu for a given file when user right-clicks on checkbox/title icon.
 	 */
-	private showContextMenuForFile(file: TFile, e: MouseEvent, currentEmoji: string, _isTitle: boolean) {
+	private showContextMenuForFile(file: TFile, e: MouseEvent, _currentEmoji: string, _isTitle: boolean) {
 		const menu = new Menu();
 
-		const hasTaskEmojiPrefix = hasTaskEmoji(file.basename);
-
-		if (!hasTaskEmojiPrefix) {
-			menu.addItem(item => item.setTitle('Convert to unchecked task ◻️').setIcon('checkbox-glyph').onClick(() => { this.convertToTask(file, TASK_EMOJIS.UNCHECKED); }));
-			menu.addItem(item => item.setTitle('Convert to scheduled task 📅').setIcon('calendar-glyph').onClick(() => { this.convertToTask(file, TASK_EMOJIS.SCHEDULED); }));
-			menu.addItem(item => item.setTitle('Convert to completed task ✅').setIcon('checkmark').onClick(() => { this.convertToTask(file, TASK_EMOJIS.CHECKED); }));
-			menu.addItem(item => item.setTitle('Convert to cancelled ❌').setIcon('cross').onClick(() => { this.convertToTask(file, TASK_EMOJIS.UNIMPORTANT); }));
+		if (hasTaskEmoji(file.basename)) {
+			this.addStatusChangeMenuItems(menu, file);
 		} else {
-			let current = extractTaskEmoji(file.basename) || '';
-			current = normalizeEmoji(current);
-
-			menu.addItem(item => item.setTitle('Remove task status').setIcon('cross').onClick(async () => { await this.removeTaskEmoji(file); }));
-
-			if (current !== TASK_EMOJIS.UNCHECKED) menu.addItem(item => item.setTitle('Mark as unchecked ◻️').setIcon('checkbox-glyph').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.UNCHECKED); }));
-			if (current !== TASK_EMOJIS.SCHEDULED) menu.addItem(item => item.setTitle('Mark as scheduled 📅').setIcon('calendar-glyph').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.SCHEDULED); }));
-			if (current !== TASK_EMOJIS.CHECKED) menu.addItem(item => item.setTitle('Mark as completed ✅').setIcon('checkmark').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.CHECKED); }));
-			if (current !== TASK_EMOJIS.UNIMPORTANT) menu.addItem(item => item.setTitle('Mark as unimportant ❌').setIcon('cross').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.UNIMPORTANT); }));
+			this.addConvertMenuItems(menu, file);
 		}
 
-		// Add option to use custom emoji
 		menu.addSeparator();
 		menu.addItem(item => item.setTitle('Use custom emoji').setIcon('pencil').onClick(() => { this.showCustomEmojiDialog(file); }));
 
-		// Show the menu at mouse position (guarded)
 		try {
 			menu.showAtMouseEvent(e);
 		} catch (err) {
-			console.error('Error showing menu at mouse event:', err);
-			new Notice('Failed to open menu');
+			notifyError('Failed to open menu', err);
 		}
 	}
 
@@ -1239,10 +1242,7 @@ export default class TaskNotesPlugin extends Plugin {
 	 * Show dialog for custom emoji input
 	 */
 	private showCustomEmojiDialog(file: TFile) {
-		// Create a simple prompt for emoji
-		// Since Obsidian doesn't have built-in emoji picker, we'll just accept any text input
-		let currentEmoji = extractTaskEmoji(file.basename) || '';
-		currentEmoji = normalizeEmoji(currentEmoji);
+		const currentEmoji = getNormalizedEmoji(file.basename);
 
 		const dialog = document.createElement('div');
 		dialog.className = 'task-notes-custom-emoji-dialog';
@@ -1432,15 +1432,10 @@ export default class TaskNotesPlugin extends Plugin {
 
 			// Only act when a transition from no unchecked -> has unchecked occurs
 			if (!prev && hasUnchecked) {
-				const fileEmoji = extractTaskEmoji(file.basename);
-				if (fileEmoji) {
-					const matchedEmoji = normalizeEmoji(fileEmoji);
-
-					if (matchedEmoji === TASK_EMOJIS.CHECKED) {
-						// Reopen the task by switching to unchecked
-						await this.changeTaskStatus(file, TASK_EMOJIS.UNCHECKED);
-						new Notice('Note contains unchecked checklist items. Reopening task to ◻️.');
-					}
+				const matchedEmoji = getNormalizedEmoji(file.basename);
+				if (matchedEmoji === TASK_EMOJIS.CHECKED) {
+					await this.changeTaskStatus(file, TASK_EMOJIS.UNCHECKED);
+					new Notice('Note contains unchecked checklist items. Reopening task to ◻️.');
 				}
 			}
 			// Update tracked state
@@ -1454,108 +1449,14 @@ export default class TaskNotesPlugin extends Plugin {
 	 * Add context menu items to file explorer
 	 */
 	private addFileContextMenu(menu: Menu, file: TAbstractFile) {
-		// Only add menu for markdown files
 		if (!(file instanceof TFile) || file.extension !== 'md') {
 			return;
 		}
 
-		const hasTaskEmojiPrefix = hasTaskEmoji(file.basename);
-
-		if (!hasTaskEmojiPrefix) {
-			// Add options to convert to task or event
-			menu.addItem((item) => {
-				item
-					.setTitle('Convert to unchecked task ◻️')
-					.setIcon('checkbox-glyph')
-					.onClick(() => {
-						this.convertToTask(file, TASK_EMOJIS.UNCHECKED);
-					});
-			});
-
-			menu.addItem((item) => {
-				item
-					.setTitle('Convert to scheduled task 📅')
-					.setIcon('calendar-glyph')
-					.onClick(() => {
-						this.convertToTask(file, TASK_EMOJIS.SCHEDULED);
-					});
-			});
-
-			menu.addItem((item) => {
-				item
-					.setTitle('Convert to completed task ✅')
-					.setIcon('checkmark')
-					.onClick(() => {
-						this.convertToTask(file, TASK_EMOJIS.CHECKED);
-					});
-			});
-
-			menu.addItem((item) => {
-				item
-					.setTitle('Convert to unimportant ❌')
-					.setIcon('cross')
-					.onClick(() => {
-						this.convertToTask(file, TASK_EMOJIS.UNIMPORTANT);
-					});
-			});
+		if (hasTaskEmoji(file.basename)) {
+			this.addStatusChangeMenuItems(menu, file);
 		} else {
-			// Add option to remove task emoji
-			menu.addItem((item) => {
-				item
-					.setTitle('Remove task status')
-					.setIcon('cross')
-					.onClick(async () => {
-						await this.removeTaskEmoji(file);
-					});
-			});
-
-			// Add options to change task status
-			let currentEmoji = extractTaskEmoji(file.basename) || '';
-			currentEmoji = normalizeEmoji(currentEmoji);
-			
-			if (currentEmoji !== TASK_EMOJIS.UNCHECKED) {
-				menu.addItem((item) => {
-					item
-						.setTitle('Mark as unchecked ◻️')
-						.setIcon('checkbox-glyph')
-						.onClick(async () => {
-							await this.changeTaskStatus(file, TASK_EMOJIS.UNCHECKED);
-						});
-				});
-			}
-
-			if (currentEmoji !== TASK_EMOJIS.SCHEDULED) {
-				menu.addItem((item) => {
-					item
-						.setTitle('Mark as scheduled 📅')
-						.setIcon('calendar-glyph')
-						.onClick(async () => {
-							await this.changeTaskStatus(file, TASK_EMOJIS.SCHEDULED);
-						});
-				});
-			}
-
-			if (currentEmoji !== TASK_EMOJIS.CHECKED) {
-				menu.addItem((item) => {
-					item
-						.setTitle('Mark as completed ✅')
-						.setIcon('checkmark')
-						.onClick(async () => {
-							await this.changeTaskStatus(file, TASK_EMOJIS.CHECKED);
-						});
-				});
-			}
-
-			if (currentEmoji !== TASK_EMOJIS.UNIMPORTANT) {
-				menu.addItem((item) => {
-					item
-						.setTitle('Mark as unimportant ❌')
-						.setIcon('cross')
-						.onClick(async () => {
-							await this.changeTaskStatus(file, TASK_EMOJIS.UNIMPORTANT);
-						});
-				});
-			}
+			this.addConvertMenuItems(menu, file);
 		}
 	}
 
@@ -1571,24 +1472,37 @@ export default class TaskNotesPlugin extends Plugin {
 				const taskName = generateTaskName(props, format);
 				const cleanEmoji = normalizeEmoji(emoji);
 				const newName = `${cleanEmoji} ${taskName.trim()}`.replace(/\s+/g, ' ');
-				const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
 
 				try {
-					// Apply template before renaming if enabled
 					if (this.settings.applyTemplateOnConvert) {
 						await this.applyTemplateToFile(file, emoji, true);
 					}
-					
-					// Then rename the file
-					await this.app.fileManager.renameFile(file, newPath);
-					
-					new Notice(`Converted to task: ${newName}`);
 				} catch (error) {
-					new Notice(`Failed to convert file: ${error.message}`);
-					console.error('Error converting file:', error);
+					notifyError('Failed to apply template', error);
+				}
+
+				if (await this.renameTaskFile(file, newName)) {
+					new Notice(`Converted to task: ${newName}`);
 				}
 			})();
 		}).open();
+	}
+
+	/**
+	 * Rename a task file to a new basename, building the full path automatically
+	 */
+	private async renameTaskFile(file: TFile, newName: string): Promise<boolean> {
+		const newPath = file.parent
+			? `${file.parent.path}/${newName}.${file.extension}`
+			: `${newName}.${file.extension}`;
+		try {
+			await this.app.fileManager.renameFile(file, newPath);
+			return true;
+		} catch (error) {
+			const msg = error instanceof Error ? error.message : String(error);
+			notifyError(`Failed to rename file: ${msg}`, error);
+			return false;
+		}
 	}
 
 	/**
@@ -1600,14 +1514,8 @@ export default class TaskNotesPlugin extends Plugin {
 		}
 
 		const nameWithoutEmoji = extractTaskName(file.basename);
-		const newPath = file.parent ? `${file.parent.path}/${nameWithoutEmoji}.${file.extension}` : `${nameWithoutEmoji}.${file.extension}`;
-
-		try {
-			await this.app.fileManager.renameFile(file, newPath);
+		if (await this.renameTaskFile(file, nameWithoutEmoji)) {
 			new Notice(`Removed task status from: ${nameWithoutEmoji}`);
-		} catch (error) {
-			new Notice(`Failed to remove task status: ${error.message}`);
-			console.error('Error removing task status:', error);
 		}
 	}
 
@@ -1633,14 +1541,7 @@ export default class TaskNotesPlugin extends Plugin {
 		const cleanEmoji   = normalizeEmoji(newEmoji);
 		const newTaskName  = this.reformatNameForNewType(rawTaskName, currentEmoji, cleanEmoji);
 		const newName      = `${cleanEmoji} ${newTaskName}`;
-		const newPath = file.parent ? `${file.parent.path}/${newName}.${file.extension}` : `${newName}.${file.extension}`;
-
-		try {
-			await this.app.fileManager.renameFile(file, newPath);
-		} catch (error) {
-			new Notice(`Failed to change task status: ${error.message}`);
-			console.error('Error changing task status:', error);
-		}
+		await this.renameTaskFile(file, newName);
 	}
 
 	/**
@@ -1729,8 +1630,7 @@ export default class TaskNotesPlugin extends Plugin {
 				new Notice('Template appended');
 			}
 		} catch (error) {
-			console.error('Error applying template:', error);
-			new Notice(`Error applying template: ${error.message}`);
+			notifyError('Error applying template', error);
 		}
 	}
 
@@ -1790,9 +1690,11 @@ export default class TaskNotesPlugin extends Plugin {
  */
 class TaskNotesSettingTab extends PluginSettingTab {
 	plugin: TaskNotesPlugin;
+	app: App;
 
 	constructor(app: App, plugin: TaskNotesPlugin) {
 		super(app, plugin);
+		this.app = app;
 		this.plugin = plugin;
 	}
 
@@ -1804,85 +1706,10 @@ class TaskNotesSettingTab extends PluginSettingTab {
 		new Setting(containerEl).setName('Task name formats').setHeading();
 		new Setting(containerEl).setDesc('Customize how task names are formatted. Available placeholders: {action}, {amount}, {outcome}, {date}, {time}, {range}');
 
-		new Setting(containerEl)
-			.setName('Unchecked task format (◻️)')
-			.setDesc('Format for unchecked tasks (emoji is added automatically, do not include it)')
-			.addText(text => {
-				text
-					.setPlaceholder('{action} - {amount} - {outcome}')
-					.setValue(this.plugin.settings.uncheckedTaskFormat)
-					.onChange(async (value) => {
-						const error = validateFormatTemplate(value);
-						if (error) {
-							new Notice('Invalid format: ' + error);
-							text.setValue(this.plugin.settings.uncheckedTaskFormat);
-							return;
-						}
-						this.plugin.settings.uncheckedTaskFormat = value;
-						await this.plugin.saveSettings();
-					});
-				text.inputEl.addClass('task-notes-input-fullwidth');
-			});
-
-		new Setting(containerEl)
-			.setName('Scheduled task format (📅)')
-			.setDesc('Format for scheduled tasks. Use {date} for start date, {time} for time, {range} for end date (emoji is added automatically, do not include it)')
-			.addText(text => {
-				text
-					.setPlaceholder('By {date} (at {time} - {range}), {action} - {amount} - {outcome}')
-					.setValue(this.plugin.settings.scheduledTaskFormat)
-					.onChange(async (value) => {
-						const error = validateFormatTemplate(value);
-						if (error) {
-							new Notice('Invalid format: ' + error);
-							text.setValue(this.plugin.settings.scheduledTaskFormat);
-							return;
-						}
-						this.plugin.settings.scheduledTaskFormat = value;
-						await this.plugin.saveSettings();
-					});
-				text.inputEl.addClass('task-notes-input-fullwidth');
-			});
-
-		new Setting(containerEl)
-			.setName('Completed task format (✅)')
-			.setDesc('Format for completed tasks (emoji is added automatically, do not include it)')
-			.addText(text => {
-				text
-					.setPlaceholder('{action} - {amount} - {outcome}')
-					.setValue(this.plugin.settings.completedTaskFormat)
-					.onChange(async (value) => {
-						const error = validateFormatTemplate(value);
-						if (error) {
-							new Notice('Invalid format: ' + error);
-							text.setValue(this.plugin.settings.completedTaskFormat);
-							return;
-						}
-						this.plugin.settings.completedTaskFormat = value;
-						await this.plugin.saveSettings();
-					});
-				text.inputEl.addClass('task-notes-input-fullwidth');
-			});
-
-		new Setting(containerEl)
-			.setName('Cancelled task format (❌)')
-			.setDesc('Format for cancelled tasks (emoji is added automatically, do not include it)')
-			.addText(text => {
-				text
-					.setPlaceholder('{action} - {amount} - {outcome}')
-					.setValue(this.plugin.settings.cancelledTaskFormat)
-					.onChange(async (value) => {
-						const error = validateFormatTemplate(value);
-						if (error) {
-							new Notice('Invalid format: ' + error);
-							text.setValue(this.plugin.settings.cancelledTaskFormat);
-							return;
-						}
-						this.plugin.settings.cancelledTaskFormat = value;
-						await this.plugin.saveSettings();
-					});
-				text.inputEl.addClass('task-notes-input-fullwidth');
-			});
+		this.addFormatSetting(containerEl, 'Unchecked task format (◻️)', 'Format for unchecked tasks (emoji is added automatically, do not include it)', 'uncheckedTaskFormat', '{action} - {amount} - {outcome}');
+		this.addFormatSetting(containerEl, 'Scheduled task format (📅)', 'Format for scheduled tasks. Use {date} for start date, {time} for time, {range} for end date (emoji is added automatically, do not include it)', 'scheduledTaskFormat', 'By {date} (at {time} - {range}), {action} - {amount} - {outcome}');
+		this.addFormatSetting(containerEl, 'Completed task format (✅)', 'Format for completed tasks (emoji is added automatically, do not include it)', 'completedTaskFormat', '{action} - {amount} - {outcome}');
+		this.addFormatSetting(containerEl, 'Cancelled task format (❌)', 'Format for cancelled tasks (emoji is added automatically, do not include it)', 'cancelledTaskFormat', '{action} - {amount} - {outcome}');
 
 		// Apply button for format settings
 		new Setting(containerEl)
@@ -1929,50 +1756,9 @@ class TaskNotesSettingTab extends PluginSettingTab {
 			new Setting(containerEl).setDesc('No templates found. Create template files in your configured templates folder.');
 		}
 
-		// Unchecked task template
-		new Setting(containerEl)
-			.setName('Unchecked task template (◻️)')
-			.setDesc('Template to apply when converting to an unchecked task')
-			.addText(text => {
-				new TemplateFileSuggest(this.app, text.inputEl, this.plugin);
-				text.setPlaceholder('Example: Templates/task-template.md')
-					.setValue(this.plugin.settings.uncheckedTaskTemplate)
-					.onChange(async (value) => {
-						this.plugin.settings.uncheckedTaskTemplate = value;
-						await this.plugin.saveSettings();
-					});
-				text.inputEl.addClass('task-notes-input-fullwidth');
-			});
-
-		// Scheduled task template
-		new Setting(containerEl)
-			.setName('Scheduled task template (📅)')
-			.setDesc('Template to apply when converting to a scheduled task')
-			.addText(text => {
-				new TemplateFileSuggest(this.app, text.inputEl, this.plugin);
-				text.setPlaceholder('Example: Templates/scheduled-template.md')
-					.setValue(this.plugin.settings.scheduledTaskTemplate)
-					.onChange(async (value) => {
-						this.plugin.settings.scheduledTaskTemplate = value;
-						await this.plugin.saveSettings();
-					});
-				text.inputEl.addClass('task-notes-input-fullwidth');
-			});
-
-		// Completed task template
-		new Setting(containerEl)
-			.setName('Completed task template (✅)')
-			.setDesc('Template to apply when converting to a completed task')
-			.addText(text => {
-				new TemplateFileSuggest(this.app, text.inputEl, this.plugin);
-				text.setPlaceholder('Example: Templates/completed-template.md')
-					.setValue(this.plugin.settings.completedTaskTemplate)
-					.onChange(async (value) => {
-						this.plugin.settings.completedTaskTemplate = value;
-						await this.plugin.saveSettings();
-					});
-				text.inputEl.addClass('task-notes-input-fullwidth');
-			});
+		this.addTemplateSetting(containerEl, 'Unchecked task template (◻️)', 'Template to apply when converting to an unchecked task', 'uncheckedTaskTemplate', 'Example: Templates/task-template.md');
+		this.addTemplateSetting(containerEl, 'Scheduled task template (📅)', 'Template to apply when converting to a scheduled task', 'scheduledTaskTemplate', 'Example: Templates/scheduled-template.md');
+		this.addTemplateSetting(containerEl, 'Completed task template (✅)', 'Template to apply when converting to a completed task', 'completedTaskTemplate', 'Example: Templates/completed-template.md');
 
 		if (templateFiles.length > 0) {
 			// Template variables info
@@ -1995,6 +1781,56 @@ class TaskNotesSettingTab extends PluginSettingTab {
 
 			new Setting(containerEl).setDesc('Note: templates are only applied to empty files to prevent overwriting existing content.');
 		}
+	}
+
+	private addFormatSetting(
+		containerEl: HTMLElement,
+		name: string,
+		desc: string,
+		key: 'uncheckedTaskFormat' | 'scheduledTaskFormat' | 'completedTaskFormat' | 'cancelledTaskFormat',
+		placeholder: string
+	): void {
+		new Setting(containerEl)
+			.setName(name)
+			.setDesc(desc)
+			.addText(text => {
+				text
+					.setPlaceholder(placeholder)
+					.setValue(this.plugin.settings[key])
+					.onChange(async (value) => {
+						const error = validateFormatTemplate(value);
+						if (error) {
+							new Notice('Invalid format: ' + error);
+							text.setValue(this.plugin.settings[key]);
+							return;
+						}
+						this.plugin.settings[key] = value;
+						await this.plugin.saveSettings();
+					});
+				text.inputEl.addClass('task-notes-input-fullwidth');
+			});
+	}
+
+	private addTemplateSetting(
+		containerEl: HTMLElement,
+		name: string,
+		desc: string,
+		key: 'uncheckedTaskTemplate' | 'scheduledTaskTemplate' | 'completedTaskTemplate',
+		placeholder: string
+	): void {
+		new Setting(containerEl)
+			.setName(name)
+			.setDesc(desc)
+			.addText(text => {
+				new TemplateFileSuggest(this.app, text.inputEl, this.plugin);
+				text.setPlaceholder(placeholder)
+					.setValue(this.plugin.settings[key])
+					.onChange(async (value) => {
+						this.plugin.settings[key] = value;
+						await this.plugin.saveSettings();
+					});
+				text.inputEl.addClass('task-notes-input-fullwidth');
+			});
 	}
 }
 
