@@ -11,32 +11,13 @@
             "id": "db3de026db19cf3c",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "📅 By 2026-01-23 at 16.48h - 2026-01-24, $2 - dfs - asdf.md",
-                "mode": "source",
-                "source": false
-              },
+              "type": "empty",
+              "state": {},
               "icon": "lucide-file",
-              "title": "📅 By 2026-01-23 at 16.48h - 2026-01-24, $2 - dfs - asdf"
-            }
-          },
-          {
-            "id": "378b8b02d73f3e85",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "📅 By 2026-01-23 at 16.48h - 2026-01-24, $2 - dfs - asdf.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "📅 By 2026-01-23 at 16.48h - 2026-01-24, $2 - dfs - asdf"
+              "title": "New tab"
             }
           }
-        ],
-        "currentTab": 1
+        ]
       }
     ],
     "direction": "vertical"
@@ -198,8 +179,17 @@
       "bases:Create new base": false
     }
   },
-  "active": "378b8b02d73f3e85",
+  "active": "db3de026db19cf3c",
   "lastOpenFiles": [
+    "📅 By 2026-06-20 at 03.33h - 2026-06-26, test - test - test.md",
+    "📅 By 2026-01-23 at 16.48h - 2026-01-24, $2 - dfs - asdf.md",
+    "❌ By 2026-01-28, d - j - 1dcdddfdsffdsfasd.md",
+    "◻ undefinedsadfdfsadfs - safddfsa - sdaffd.md",
+    "test/🎯 Adsf - adsf - af",
+    "◻️ By 2026-06-28, fdasd - fdasa - adfasdffdasasdf.md",
+    "test/🚀 Test - test - test/📅 By 2026-06-20 at 17.27h, undefinedsadfdfsadfs - safddfsa - sdaffd.md",
+    "test/🚀 Test - test - test",
+    "test/template.md",
     "✅ By 2026-06-17, rtets - test - etst.md",
     "📅 By 2026-01-23 at 12.34h, fdfgdsdfsdgffgdfgd - dfa - dfsa.md",
     "✅ By 2026-01-23, fdfgdsdfsdgffgdfgd - dfa - dfsa.md",
@@ -211,21 +201,14 @@
     "📅 By 2026-05-23 at 22.55h - 2026-05-13, e - e - e.md",
     "📅 By 2026-04-28 at 22.54h - 2026-05-05, d - d - ds.md",
     "📅 By 2026-05-26, test - test - test.md",
-    "test/template.md",
-    "📅 By 2026-01-23 at 16.48h - 2026-01-24, $2 - dfs - asdf.md",
     "✅ Finish project report - fddsfsddfs - sfadsdf.md",
     "✅ By 2026-01-15, fsdgfdgsfdgs - fsdgfdgsfdg - fsdgfdgsfsdg.md",
     "✅ By 2026 - 01 - 13, moin - 2026 - 01-14, buy - 2 - thing.md",
-    "◻ undefinedsadfdfsadfs - safddfsa - sdaffd.md",
-    "❌ By 2026-01-28, d - j - 1dcdddfdsffdsfasd.md",
+    "✅ By 2026-01-28, d - j - 1dcdddfdsffdsfasd.md",
     "📅 By 2026-01-22 15.12h 2026-01-08, sfa - sdaf - sfad.md",
     "📅 By 2026-01-24, $2 - dfs - asdf.md",
     "✅ By 2026dssafdsfdsa - 02 - 05, By 2026dsafdsadfs - 01 - 22, dfaffds - 01 - ddd.md",
     "✅ By 2026dssafdsfdsa - 02uhghjfgfjhhgjf - 05, By 2026dsafdsadfs - 01 - 22, dfaffds - 01 - ddd.md",
-    "✅ undefinedsadfdfsadfs - safddfsabhvgh - 4.md",
-    "✅ By 2026-02-05, undefinedsadfdfsadfssdfsdffsd - safddfsa - sdaffdsdfgfdsadfs.md",
-    "◻️ By 2026-01-22, By 2026sdafdsadsfafds - 01 - 23, $2 - dfs - asdf.md",
-    "📅 � By 2026-01-24, - 02 - 04, test - 1 - test.md",
     "test",
     "✅ Buy groceries",
     "✅ Doctor appointment",

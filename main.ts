@@ -1,4 +1,4 @@
-import { App, Plugin, TFile, TAbstractFile, Menu, Notice, PluginSettingTab, Setting, normalizePath, Modal } from 'obsidian';
+import { App, Plugin, TFile, TFolder, TAbstractFile, Menu, Notice, PluginSettingTab, Setting, normalizePath, Modal } from 'obsidian';
 
 // Task properties interface
 interface TaskProperties {
@@ -22,6 +22,9 @@ interface TaskNotesSettings {
 	scheduledTaskFormat: string;
 	completedTaskFormat: string;
 	cancelledTaskFormat: string;
+	// Folder-only format templates
+	projectFolderFormat: string;
+	targetFolderFormat: string;
 }
 
 // Default settings
@@ -33,7 +36,9 @@ const DEFAULT_SETTINGS: TaskNotesSettings = {
 	uncheckedTaskFormat: '{action} - {amount} - {outcome}',
 	scheduledTaskFormat: 'By {date} (at {time} - {range}), {action} - {amount} - {outcome}',
 	completedTaskFormat: '{action} - {amount} - {outcome}',
-	cancelledTaskFormat: '{action} - {amount} - {outcome}'
+	cancelledTaskFormat: '{action} - {amount} - {outcome}',
+	projectFolderFormat: '{action} - {amount} - {outcome}',
+	targetFolderFormat:  '{action} - {amount} - {outcome}'
 };
 
 /**
@@ -51,7 +56,7 @@ function normalizeEmoji(emoji: string): string {
 	return emoji.replace(/\p{Cf}/gu, '');
 }
 
-// Task emoji constants
+// Task emoji constants (used for all item types)
 const TASK_EMOJIS = {
 	UNCHECKED: '◻️',
 	SCHEDULED: '📅',
@@ -59,14 +64,24 @@ const TASK_EMOJIS = {
 	UNIMPORTANT: '❌'
 } as const;
 
-// Simple regex to check if a filename has a task emoji prefix
-const TASK_EMOJI_REGEX = /^(?:[\u25FB]\uFE0F?|\ud83d\udcc5|\u2705|\u274c)\s+/u;
+// Folder-only emoji constants (replace UNCHECKED and SCHEDULED for folders)
+const FOLDER_EMOJIS = {
+	PROJECT: '🚀',
+	TARGET:  '🎯'
+} as const;
+
+// Regex to check if a filename has any recognised task emoji prefix
+const TASK_EMOJI_REGEX = /^(?:[\u25FB]\uFE0F?|\ud83d\udcc5|\u2705|\u274c|\ud83d\ude80|\ud83c\udfaf)\s+/u;
 
 /**
  * Extract the emoji from a task filename
  */
 function extractTaskEmoji(filename: string): string | null {
-	const emojis = [TASK_EMOJIS.UNCHECKED, TASK_EMOJIS.SCHEDULED, TASK_EMOJIS.CHECKED, TASK_EMOJIS.UNIMPORTANT];
+	const emojis = [
+		TASK_EMOJIS.UNCHECKED, TASK_EMOJIS.SCHEDULED,
+		TASK_EMOJIS.CHECKED,   TASK_EMOJIS.UNIMPORTANT,
+		FOLDER_EMOJIS.PROJECT, FOLDER_EMOJIS.TARGET
+	];
 	for (const emoji of emojis) {
 		const normalized = normalizeEmoji(emoji);
 		if (filename.startsWith(emoji + ' ') || filename.startsWith(normalized + ' ')) {
@@ -89,7 +104,7 @@ function extractTaskName(filename: string): string {
 	// Remove leading invisible Unicode format characters and spaces
 	taskName = taskName.replace(/^[\p{Cf}\s]+/u, '').trim();
 	// Also strip any additional emojis that might have been accidentally added
-	taskName = taskName.replace(/^(?:\u25FB\uFE0F?|\ud83d\udcc5|\u2705|\u274c)\s*/gu, '');
+	taskName = taskName.replace(/^(?:\u25FB\uFE0F?|\ud83d\udcc5|\u2705|\u274c|\ud83d\ude80|\ud83c\udfaf)\s*/gu, '');
 	return taskName.trim();
 }
 
@@ -112,6 +127,14 @@ function cleanupTaskName(taskName: string): string {
  */
 function getNormalizedEmoji(filename: string): string {
 	return normalizeEmoji(extractTaskEmoji(filename) || '');
+}
+
+/**
+ * Get the display name of a file or folder without its extension.
+ * TFile has a dedicated `basename` field; for TFolder the full `name` is used (no extension).
+ */
+function getBasename(item: TAbstractFile): string {
+	return item instanceof TFile ? item.basename : item.name;
 }
 
 /**
@@ -142,7 +165,7 @@ function parseTaskProperties(taskName: string, isEvent: boolean): TaskProperties
 
 	if (isEvent) {
 		// Helper: split "action - amount - outcome" remainder into the three props
-		const parseRemainder = (remainder: string) => {
+		const parseRemainder = (remainder: string): void => {
 			const partRegex = /^(.+?)\s*-\s*(.+?)\s*-\s*(.+)$/;
 			const partMatch = remainder.match(partRegex);
 			if (partMatch) {
@@ -230,7 +253,7 @@ function parseTaskProperties(taskName: string, isEvent: boolean): TaskProperties
  * Generate task name from properties using format template
  */
 function generateTaskName(props: TaskProperties, format: string): string {
-	let result = format.replace(/^(?:◻️|✅|📅|❌)\s*/, '');
+	let result = format.replace(/^(?:◻️|✅|📅|❌|🚀|🎯)\s*/, '');
 
 	// Capitalize action for regular tasks, lowercase for events (action follows date in events)
 	const isEvent = format.includes('{date}');
@@ -292,9 +315,11 @@ function generateTaskName(props: TaskProperties, format: string): string {
 function getTaskFormatByEmoji(emoji: string, settings: TaskNotesSettings): string {
 	const normalized = normalizeEmoji(emoji);
 
-	if (normalized === normalizeEmoji(TASK_EMOJIS.SCHEDULED)) return settings.scheduledTaskFormat;
-	if (normalized === normalizeEmoji(TASK_EMOJIS.CHECKED)) return settings.completedTaskFormat;
+	if (normalized === normalizeEmoji(TASK_EMOJIS.SCHEDULED))   return settings.scheduledTaskFormat;
+	if (normalized === normalizeEmoji(TASK_EMOJIS.CHECKED))     return settings.completedTaskFormat;
 	if (normalized === normalizeEmoji(TASK_EMOJIS.UNIMPORTANT)) return settings.cancelledTaskFormat;
+	if (normalized === normalizeEmoji(FOLDER_EMOJIS.PROJECT))   return settings.projectFolderFormat;
+	if (normalized === normalizeEmoji(FOLDER_EMOJIS.TARGET))    return settings.targetFolderFormat;
 
 	return settings.uncheckedTaskFormat;
 }
@@ -396,7 +421,7 @@ class TaskPropertiesModal extends Modal {
 		this.onSubmit = onSubmit;
 	}
 
-	onOpen() {
+	onOpen(): void {
 		// Prevent Obsidian's backdrop-click close.
 		// Obsidian's close listener sits on bgEl (the overlay). We intercept in capture
 		// phase on containerEl — before the event reaches bgEl — and block any click that
@@ -528,7 +553,7 @@ class TaskPropertiesModal extends Modal {
 		}
 	}
 
-	onClose() {
+	onClose(): void {
 		const { contentEl } = this;
 		contentEl.empty();
 	}
@@ -540,7 +565,7 @@ export default class TaskNotesPlugin extends Plugin {
 	private fileUncheckedState: Map<string, boolean> = new Map();
 	settings: TaskNotesSettings;
 
-	async onload() {
+	async onload(): Promise<void> {
 		// Load settings
 		await this.loadSettings();
 
@@ -608,16 +633,16 @@ export default class TaskNotesPlugin extends Plugin {
 		);
 	}
 
-	async loadSettings() {
+	async loadSettings(): Promise<void> {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
 	}
 
-	async saveSettings() {
+	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
 		((window as unknown) as Record<string, unknown>).taskNotesPluginSettings = this.settings; // always update global ref
 	}
 
-	onunload() {
+	onunload(): void {
 		// Clean up observers
 		if (this.titleCheckboxObserver) {
 			this.titleCheckboxObserver.disconnect();
@@ -640,23 +665,18 @@ export default class TaskNotesPlugin extends Plugin {
 	}
 
 	/**
-	 * Initialize file explorer with checkboxes for existing task files
+	 * Initialize file explorer with checkboxes for existing task files and folders
 	 */
-	private initializeFileExplorer() {
-		// Find all markdown files and add checkboxes where appropriate
-		const files = this.app.vault.getMarkdownFiles();
-		files.forEach(file => {
-			this.updateFileExplorerItem(file);
-		});
-
-		// Set up mutation observer to watch for file explorer changes
+	private initializeFileExplorer(): void {
+		this.app.vault.getMarkdownFiles().forEach(f => this.updateExplorerItem(f));
+		this.app.vault.getAllFolders().forEach(f => this.updateExplorerItem(f));
 		this.setupFileExplorerObserver();
 	}
 
 	/**
 	 * Set up MutationObserver to watch for file explorer DOM changes
 	 */
-	private setupFileExplorerObserver() {
+	private setupFileExplorerObserver(): void {
 		const fileExplorerContainer = document.querySelector('.nav-files-container');
 		
 		if (!fileExplorerContainer) {
@@ -684,71 +704,65 @@ export default class TaskNotesPlugin extends Plugin {
 	/**
 	 * Process a file explorer node and add checkboxes if needed
 	 */
-	private processFileExplorerNode(_node: HTMLElement) {
-		// Re-scan visible file items and ensure checkboxes exist. We avoid relying
-		// solely on addedNodes because Obsidian may update existing items instead.
-		const fileItems = document.querySelectorAll('.nav-file-title');
-		fileItems.forEach((fileItem) => {
-			const filePath = fileItem.getAttribute('data-path');
-			if (filePath) {
-				const file = this.app.vault.getAbstractFileByPath(filePath);
-				if (file instanceof TFile && file.extension === 'md') {
-					this.updateFileExplorerItem(file);
+	private processFileExplorerNode(_node: HTMLElement): void {
+		// Re-scan all visible file and folder items.
+		const selectors = ['.nav-file-title', '.nav-folder-title'];
+		for (const selector of selectors) {
+			document.querySelectorAll(selector).forEach((el) => {
+				const path = el.getAttribute('data-path');
+				if (path) {
+					const item = this.app.vault.getAbstractFileByPath(path);
+					if (item) this.updateExplorerItem(item);
 				}
-			}
-		});
+			});
+		}
 	}
 
 	/**
-	 * Update file explorer item with checkbox based on task status
+	 * Update the file/folder explorer item with a checkbox based on task status
 	 */
-	private updateFileExplorerItem(file: TFile) {
-		const fileItem = this.getFileExplorerElement(file);
-		if (!fileItem) {
-			return;
-		}
+	private updateExplorerItem(item: TAbstractFile): void {
+		// Skip non-markdown files (but always process folders)
+		if (item instanceof TFile && item.extension !== 'md') return;
 
-		// Best-effort: avoid repeatedly removing/re-adding the same checkbox
-		// (which can cause an observer-triggered mutation loop and freeze the UI).
-		const existingCheckbox = fileItem.querySelector('.task-notes-checkbox');
+		const el = this.getExplorerElement(item);
+		if (!el) return;
 
-		if (!hasTaskEmoji(file.basename)) {
-			// If no task emoji but a checkbox exists, remove it once.
+		const existingCheckbox = el.querySelector('.task-notes-checkbox');
+
+		if (!hasTaskEmoji(getBasename(item))) {
 			if (existingCheckbox) existingCheckbox.remove();
 			return;
 		}
 
-		const emoji = getNormalizedEmoji(file.basename);
+		const emoji = getNormalizedEmoji(getBasename(item));
 
-		// If an identical checkbox is already present, do nothing.
 		if (existingCheckbox) {
 			const existingEmoji = existingCheckbox.getAttribute('data-emoji');
-			if (existingEmoji === emoji) {
-				return;
-			}
-			// Otherwise remove it and recreate with the correct emoji
+			if (existingEmoji === emoji) return;
 			existingCheckbox.remove();
 		}
 
-		const checkbox = this.createCheckbox(emoji, false, file); // read-only in file explorer
+		const checkbox = this.createCheckbox(emoji, false, item);
 
-		// Insert checkbox at the beginning of the title
-		const titleContent = fileItem.querySelector('.nav-file-title-content');
+		const contentSelector = item instanceof TFolder
+			? '.nav-folder-title-content'
+			: '.nav-file-title-content';
+		const titleContent = el.querySelector(contentSelector);
 		if (titleContent) {
 			titleContent.insertBefore(checkbox, titleContent.firstChild);
 		}
 	}
 
 	/**
-	 * Get the file explorer DOM element for a file
+	 * Get the file explorer DOM element for a file or folder
 	 */
-	private getFileExplorerElement(file: TFile): HTMLElement | null {
-		const fileItems = document.querySelectorAll('.nav-file-title');
-		for (let i = 0; i < fileItems.length; i++) {
-			const item = fileItems[i] as HTMLElement;
-			if (item.getAttribute('data-path') === file.path) {
-				return item;
-			}
+	private getExplorerElement(item: TAbstractFile): HTMLElement | null {
+		const selector = item instanceof TFolder ? '.nav-folder-title' : '.nav-file-title';
+		const els = document.querySelectorAll(selector);
+		for (let i = 0; i < els.length; i++) {
+			const el = els[i] as HTMLElement;
+			if (el.getAttribute('data-path') === item.path) return el;
 		}
 		return null;
 	}
@@ -903,7 +917,7 @@ export default class TaskNotesPlugin extends Plugin {
 	/**
 	 * Handle property input changes and update file
 	 */
-	private async handlePropertyInputChange(file: TFile, emoji: string, container: HTMLElement) {
+	private async handlePropertyInputChange(file: TFile, emoji: string, container: HTMLElement): Promise<void> {
 		// Normalize the emoji right at the start
 		const normalizedEmoji = normalizeEmoji(emoji);
 		
@@ -986,26 +1000,21 @@ export default class TaskNotesPlugin extends Plugin {
 	/**
 	 * Create a checkbox element
 	 */
-	private createCheckbox(emoji: string, interactive: boolean = true, fileForMenu?: TFile): HTMLElement {
+	private createCheckbox(emoji: string, interactive: boolean = true, itemForMenu?: TAbstractFile): HTMLElement {
 		const checkbox = document.createElement('input');
 		checkbox.type = 'checkbox';
 		checkbox.className = 'task-notes-checkbox';
-		// Show as checked for completed tasks and for 'unimportant' tasks per user request
 		checkbox.checked = (emoji === TASK_EMOJIS.CHECKED) || (emoji === TASK_EMOJIS.UNIMPORTANT);
 		checkbox.disabled = !interactive;
-		// store emoji for quick lookup — use data attribute rather than reassigning
-		// the read-only `dataset` property in some environments.
 		checkbox.setAttribute('data-emoji', emoji);
 
-		// If associated with a file (file explorer checkbox), add a contextmenu
-		// handler so users can right-click the checkbox to change task type.
-		if (fileForMenu) {
-			const fileForMenuRef = fileForMenu;
+		if (itemForMenu) {
+			const ref = itemForMenu;
 			checkbox.addEventListener('contextmenu', (e) => {
 				e.preventDefault();
 				e.stopPropagation();
 				try {
-					this.showContextMenuForFile(fileForMenuRef, e, emoji, false);
+					this.showContextMenuForItem(ref, e, emoji, false);
 				} catch (err) {
 					notifyError('Failed to open context menu', err);
 				}
@@ -1018,7 +1027,7 @@ export default class TaskNotesPlugin extends Plugin {
 	/**
 	 * Update the title checkbox for the currently active file
 	 */
-	private updateTitleCheckbox(file: TFile | null) {
+	private updateTitleCheckbox(file: TFile | null): void {
 		// Find the footer in the current active leaf
 		const activeLeaf = this.app.workspace.getLeaf(false);
 		if (!activeLeaf) {
@@ -1069,7 +1078,7 @@ export default class TaskNotesPlugin extends Plugin {
 		checkbox.addEventListener('contextmenu', (e) => {
 			e.preventDefault();
 			e.stopPropagation();
-			this.showContextMenuForFile(file, e, emoji, true);
+			this.showContextMenuForItem(file, e, emoji, true);
 		});
 
 		wrapper.appendChild(checkbox);
@@ -1113,7 +1122,7 @@ export default class TaskNotesPlugin extends Plugin {
 	/**
 	 * Remove the footer checkbox and inputs
 	 */
-	private removeTitleCheckbox() {
+	private removeTitleCheckbox(): void {
 	const footer = document.querySelector('.task-notes-footer');
 	if (footer) {
 		const wrapper = footer.querySelector('.task-notes-title-wrapper');
@@ -1136,14 +1145,10 @@ export default class TaskNotesPlugin extends Plugin {
 		const fromIsEvent = normalizeEmoji(fromEmoji) === normalizeEmoji(TASK_EMOJIS.SCHEDULED);
 		const toIsEvent   = normalizeEmoji(toEmoji)   === normalizeEmoji(TASK_EMOJIS.SCHEDULED);
 
+		// When converting away from a scheduled event, keep the full name as-is.
+		// Only the emoji prefix changes; date, time, and range are preserved verbatim.
 		if (fromIsEvent && !toIsEvent) {
-			const parsed = parseTaskProperties(rawTaskName, true);
-			let newFormat = getTaskFormatByEmoji(normalizeEmoji(toEmoji), this.settings);
-			// Preserve the date prefix when converting from a scheduled event
-			if (parsed.startDate && !newFormat.includes('{date}')) {
-				newFormat = `By {date}, ${newFormat}`;
-			}
-			return generateTaskName(parsed, newFormat);
+			return rawTaskName;
 		}
 
 		return rawTaskName;
@@ -1152,7 +1157,7 @@ export default class TaskNotesPlugin extends Plugin {
 	/**
 	 * Handle checkbox click in the title
 	 */
-	private async handleTitleCheckboxClick(file: TFile, currentEmoji: string) {
+	private async handleTitleCheckboxClick(file: TFile, currentEmoji: string): Promise<void> {
 		const newEmoji = this.getNextEmoji(currentEmoji);
 
 		// Guard: Only allow marking as completed when all markdown todos are checked
@@ -1200,36 +1205,43 @@ export default class TaskNotesPlugin extends Plugin {
 		return TASK_EMOJIS.CHECKED;
 	}
 
-	private addConvertMenuItems(menu: Menu, file: TFile): void {
-		menu.addItem(item => item.setTitle('Convert to unchecked task ◻️').setIcon('checkbox-glyph').onClick(() => { this.convertToTask(file, TASK_EMOJIS.UNCHECKED); }));
-		menu.addItem(item => item.setTitle('Convert to scheduled task 📅').setIcon('calendar-glyph').onClick(() => { this.convertToTask(file, TASK_EMOJIS.SCHEDULED); }));
-		menu.addItem(item => item.setTitle('Convert to completed task ✅').setIcon('checkmark').onClick(() => { this.convertToTask(file, TASK_EMOJIS.CHECKED); }));
-		menu.addItem(item => item.setTitle('Convert to unimportant ❌').setIcon('cross').onClick(() => { this.convertToTask(file, TASK_EMOJIS.UNIMPORTANT); }));
+	private addConvertMenuItems(menu: Menu, item: TAbstractFile): void {
+		if (item instanceof TFolder) {
+			menu.addItem(mi => mi.setTitle('Convert to goal 🎯').setIcon('crosshair').onClick(() => { this.convertToTask(item, FOLDER_EMOJIS.TARGET); }));
+			menu.addItem(mi => mi.setTitle('Convert to project 🚀').setIcon('rocket').onClick(() => { this.convertToTask(item, FOLDER_EMOJIS.PROJECT); }));
+		} else {
+			menu.addItem(mi => mi.setTitle('Convert to unchecked task ◻️').setIcon('checkbox-glyph').onClick(() => { this.convertToTask(item, TASK_EMOJIS.UNCHECKED); }));
+			menu.addItem(mi => mi.setTitle('Convert to scheduled task 📅').setIcon('calendar-glyph').onClick(() => { this.convertToTask(item, TASK_EMOJIS.SCHEDULED); }));
+		}
+		menu.addItem(mi => mi.setTitle('Convert to completed task ✅').setIcon('checkmark').onClick(() => { this.convertToTask(item, TASK_EMOJIS.CHECKED); }));
+		menu.addItem(mi => mi.setTitle('Convert to unimportant ❌').setIcon('cross').onClick(() => { this.convertToTask(item, TASK_EMOJIS.UNIMPORTANT); }));
 	}
 
-	private addStatusChangeMenuItems(menu: Menu, file: TFile): void {
-		const current = getNormalizedEmoji(file.basename);
-		menu.addItem(item => item.setTitle('Remove task status').setIcon('cross').onClick(async () => { await this.removeTaskEmoji(file); }));
-		if (current !== TASK_EMOJIS.UNCHECKED)    menu.addItem(item => item.setTitle('Mark as unchecked ◻️').setIcon('checkbox-glyph').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.UNCHECKED); }));
-		if (current !== TASK_EMOJIS.SCHEDULED)    menu.addItem(item => item.setTitle('Mark as scheduled 📅').setIcon('calendar-glyph').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.SCHEDULED); }));
-		if (current !== TASK_EMOJIS.CHECKED)      menu.addItem(item => item.setTitle('Mark as completed ✅').setIcon('checkmark').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.CHECKED); }));
-		if (current !== TASK_EMOJIS.UNIMPORTANT)  menu.addItem(item => item.setTitle('Mark as unimportant ❌').setIcon('cross').onClick(async () => { await this.changeTaskStatus(file, TASK_EMOJIS.UNIMPORTANT); }));
+	private addStatusChangeMenuItems(menu: Menu, item: TAbstractFile): void {
+		const current = getNormalizedEmoji(getBasename(item));
+		menu.addItem(mi => mi.setTitle('Remove task status').setIcon('cross').onClick(async () => { await this.removeTaskEmoji(item); }));
+		if (item instanceof TFolder) {
+			if (current !== normalizeEmoji(FOLDER_EMOJIS.TARGET))  menu.addItem(mi => mi.setTitle('Mark as goal 🎯').setIcon('crosshair').onClick(async () => { await this.changeTaskStatus(item, FOLDER_EMOJIS.TARGET); }));
+			if (current !== normalizeEmoji(FOLDER_EMOJIS.PROJECT)) menu.addItem(mi => mi.setTitle('Mark as project 🚀').setIcon('rocket').onClick(async () => { await this.changeTaskStatus(item, FOLDER_EMOJIS.PROJECT); }));
+		} else {
+			if (current !== normalizeEmoji(TASK_EMOJIS.UNCHECKED)) menu.addItem(mi => mi.setTitle('Mark as unchecked ◻️').setIcon('checkbox-glyph').onClick(async () => { await this.changeTaskStatus(item, TASK_EMOJIS.UNCHECKED); }));
+			if (current !== normalizeEmoji(TASK_EMOJIS.SCHEDULED)) menu.addItem(mi => mi.setTitle('Mark as scheduled 📅').setIcon('calendar-glyph').onClick(async () => { await this.changeTaskStatus(item, TASK_EMOJIS.SCHEDULED); }));
+		}
+		if (current !== normalizeEmoji(TASK_EMOJIS.CHECKED))      menu.addItem(mi => mi.setTitle('Mark as completed ✅').setIcon('checkmark').onClick(async () => { await this.changeTaskStatus(item, TASK_EMOJIS.CHECKED); }));
+		if (current !== normalizeEmoji(TASK_EMOJIS.UNIMPORTANT))  menu.addItem(mi => mi.setTitle('Mark as unimportant ❌').setIcon('cross').onClick(async () => { await this.changeTaskStatus(item, TASK_EMOJIS.UNIMPORTANT); }));
 	}
 
-	/**
-	 * Show context menu for a given file when user right-clicks on checkbox/title icon.
-	 */
-	private showContextMenuForFile(file: TFile, e: MouseEvent, _currentEmoji: string, _isTitle: boolean) {
+	private showContextMenuForItem(item: TAbstractFile, e: MouseEvent, _currentEmoji: string, _isTitle: boolean): void {
 		const menu = new Menu();
 
-		if (hasTaskEmoji(file.basename)) {
-			this.addStatusChangeMenuItems(menu, file);
+		if (hasTaskEmoji(getBasename(item))) {
+			this.addStatusChangeMenuItems(menu, item);
 		} else {
-			this.addConvertMenuItems(menu, file);
+			this.addConvertMenuItems(menu, item);
 		}
 
 		menu.addSeparator();
-		menu.addItem(item => item.setTitle('Use custom emoji').setIcon('pencil').onClick(() => { this.showCustomEmojiDialog(file); }));
+		menu.addItem(mi => mi.setTitle('Use custom emoji').setIcon('pencil').onClick(() => { this.showCustomEmojiDialog(item); }));
 
 		try {
 			menu.showAtMouseEvent(e);
@@ -1241,8 +1253,8 @@ export default class TaskNotesPlugin extends Plugin {
 	/**
 	 * Show dialog for custom emoji input
 	 */
-	private showCustomEmojiDialog(file: TFile) {
-		const currentEmoji = getNormalizedEmoji(file.basename);
+	private showCustomEmojiDialog(file: TAbstractFile): void {
+		const currentEmoji = getNormalizedEmoji(getBasename(file));
 
 		const dialog = document.createElement('div');
 		dialog.className = 'task-notes-custom-emoji-dialog';
@@ -1315,7 +1327,7 @@ export default class TaskNotesPlugin extends Plugin {
 			dialog.remove();
 
 			// Update task with new emoji
-			if (hasTaskEmoji(file.basename)) {
+			if (hasTaskEmoji(getBasename(file))) {
 				void this.changeTaskStatus(file, newEmoji);
 			} else {
 				void this.convertToTask(file, newEmoji);
@@ -1332,7 +1344,6 @@ export default class TaskNotesPlugin extends Plugin {
 		document.body.appendChild(dialog);
 		input.focus();
 
-		// Allow Enter key to submit
 		input.addEventListener('keypress', (e) => {
 			if (e.key === 'Enter') {
 				const newEmoji = input.value.trim();
@@ -1343,7 +1354,7 @@ export default class TaskNotesPlugin extends Plugin {
 
 				dialog.remove();
 
-				if (hasTaskEmoji(file.basename)) {
+				if (hasTaskEmoji(getBasename(file))) {
 					void this.changeTaskStatus(file, newEmoji);
 				} else {
 					void this.convertToTask(file, newEmoji);
@@ -1355,18 +1366,14 @@ export default class TaskNotesPlugin extends Plugin {
 	/**
 	 * Handle file rename events
 	 */
-	private handleFileRename(file: TAbstractFile, oldPath: string) {
+	private handleFileRename(file: TAbstractFile, oldPath: string): void {
+		this.updateExplorerItem(file);
+
 		if (file instanceof TFile && file.extension === 'md') {
-			// Update file explorer
-			this.updateFileExplorerItem(file);
-			
-			// Update title if this is the active file
 			const activeFile = this.app.workspace.getActiveFile();
 			if (activeFile && activeFile.path === file.path) {
 				this.updateTitleCheckbox(file);
 			}
-
-			// Move tracked state from old path to new path
 			const prev = this.fileUncheckedState.get(oldPath);
 			if (typeof prev === 'boolean') {
 				this.fileUncheckedState.delete(oldPath);
@@ -1376,23 +1383,20 @@ export default class TaskNotesPlugin extends Plugin {
 	}
 
 	/**
-	 * Handle file create events
+	 * Handle file/folder create events
 	 */
-	private handleFileCreate(file: TAbstractFile) {
+	private handleFileCreate(file: TAbstractFile): void {
+		this.updateExplorerItem(file);
 		if (file instanceof TFile && file.extension === 'md') {
-			this.updateFileExplorerItem(file);
-			// Initialize state for new file
 			this.refreshFileUncheckedState(file).catch(() => {});
 		}
 	}
 
 	/**
-	 * Handle file delete events
+	 * Handle file/folder delete events
 	 */
-	private handleFileDelete(file: TAbstractFile) {
-		if (file instanceof TFile && file.extension === 'md') {
-			// File explorer item will be automatically removed by Obsidian
-			// Just ensure we clean up any references
+	private handleFileDelete(file: TAbstractFile): void {
+		if (file instanceof TFile) {
 			this.fileUncheckedState.delete(file.path);
 		}
 	}
@@ -1400,7 +1404,7 @@ export default class TaskNotesPlugin extends Plugin {
 	/**
 	 * Initialize per-file unchecked state map at load to enable accurate change detection
 	 */
-	private async initializeTodoState() {
+	private async initializeTodoState(): Promise<void> {
 		const files = this.app.vault.getMarkdownFiles();
 		for (const f of files) {
 			await this.refreshFileUncheckedState(f);
@@ -1408,7 +1412,7 @@ export default class TaskNotesPlugin extends Plugin {
 	}
 
 	/** Update tracked state for a file by scanning its content */
-	private async refreshFileUncheckedState(file: TFile) {
+	private async refreshFileUncheckedState(file: TFile): Promise<void> {
 		try {
 			const content = await this.app.vault.read(file);
 			const hasUnchecked = /(^|\n)\s*[-*+]\s+\[\s?\]/m.test(content);
@@ -1419,7 +1423,7 @@ export default class TaskNotesPlugin extends Plugin {
 	}
 
 	/** Handle file content modifications to auto-reopen checked tasks */
-	private async handleFileModify(file: TFile) {
+	private async handleFileModify(file: TFile): Promise<void> {
 		let prev = this.fileUncheckedState.get(file.path);
 		try {
 			const content = await this.app.vault.read(file);
@@ -1448,12 +1452,12 @@ export default class TaskNotesPlugin extends Plugin {
 	/**
 	 * Add context menu items to file explorer
 	 */
-	private addFileContextMenu(menu: Menu, file: TAbstractFile) {
-		if (!(file instanceof TFile) || file.extension !== 'md') {
-			return;
-		}
+	private addFileContextMenu(menu: Menu, file: TAbstractFile): void {
+		const isMarkdownFile = file instanceof TFile && file.extension === 'md';
+		const isFolder = file instanceof TFolder;
+		if (!isMarkdownFile && !isFolder) return;
 
-		if (hasTaskEmoji(file.basename)) {
+		if (hasTaskEmoji(getBasename(file))) {
 			this.addStatusChangeMenuItems(menu, file);
 		} else {
 			this.addConvertMenuItems(menu, file);
@@ -1461,27 +1465,26 @@ export default class TaskNotesPlugin extends Plugin {
 	}
 
 	/**
-	 * Convert a regular file to a task by adding emoji prefix
+	 * Convert a file or folder to a task by adding an emoji prefix
 	 */
-	private convertToTask(file: TFile, emoji: string) {
-		new TaskPropertiesModal(this.app, emoji, file.basename, this.settings, (props) => {
+	private convertToTask(item: TAbstractFile, emoji: string): void {
+		new TaskPropertiesModal(this.app, emoji, getBasename(item), this.settings, (props) => {
 			void (async () => {
-				// Get the appropriate format template
 				const format = getTaskFormatByEmoji(emoji, this.settings);
-				
 				const taskName = generateTaskName(props, format);
 				const cleanEmoji = normalizeEmoji(emoji);
 				const newName = `${cleanEmoji} ${taskName.trim()}`.replace(/\s+/g, ' ');
 
-				try {
-					if (this.settings.applyTemplateOnConvert) {
-						await this.applyTemplateToFile(file, emoji, true);
+				// Templates only apply to files
+				if (item instanceof TFile && this.settings.applyTemplateOnConvert) {
+					try {
+						await this.applyTemplateToFile(item, emoji, true);
+					} catch (error) {
+						notifyError('Failed to apply template', error);
 					}
-				} catch (error) {
-					notifyError('Failed to apply template', error);
 				}
 
-				if (await this.renameTaskFile(file, newName)) {
+				if (await this.renameTaskFile(item, newName)) {
 					new Notice(`Converted to task: ${newName}`);
 				}
 			})();
@@ -1491,16 +1494,17 @@ export default class TaskNotesPlugin extends Plugin {
 	/**
 	 * Rename a task file to a new basename, building the full path automatically
 	 */
-	private async renameTaskFile(file: TFile, newName: string): Promise<boolean> {
-		const newPath = file.parent
-			? `${file.parent.path}/${newName}.${file.extension}`
-			: `${newName}.${file.extension}`;
+	private async renameTaskFile(item: TAbstractFile, newName: string): Promise<boolean> {
+		const suffix = item instanceof TFile ? `.${item.extension}` : '';
+		const newPath = item.parent
+			? `${item.parent.path}/${newName}${suffix}`
+			: `${newName}${suffix}`;
 		try {
-			await this.app.fileManager.renameFile(file, newPath);
+			await this.app.fileManager.renameFile(item, newPath);
 			return true;
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);
-			notifyError(`Failed to rename file: ${msg}`, error);
+			notifyError(`Failed to rename: ${msg}`, error);
 			return false;
 		}
 	}
@@ -1508,13 +1512,11 @@ export default class TaskNotesPlugin extends Plugin {
 	/**
 	 * Remove task emoji from filename
 	 */
-	private async removeTaskEmoji(file: TFile) {
-		if (!hasTaskEmoji(file.basename)) {
-			return;
-		}
+	private async removeTaskEmoji(item: TAbstractFile): Promise<void> {
+		if (!hasTaskEmoji(getBasename(item))) return;
 
-		const nameWithoutEmoji = extractTaskName(file.basename);
-		if (await this.renameTaskFile(file, nameWithoutEmoji)) {
+		const nameWithoutEmoji = extractTaskName(getBasename(item));
+		if (await this.renameTaskFile(item, nameWithoutEmoji)) {
 			new Notice(`Removed task status from: ${nameWithoutEmoji}`);
 		}
 	}
@@ -1522,32 +1524,30 @@ export default class TaskNotesPlugin extends Plugin {
 	/**
 	 * Change task status emoji
 	 */
-	private async changeTaskStatus(file: TFile, newEmoji: string) {
-		if (!hasTaskEmoji(file.basename)) {
-			return;
-		}
+	private async changeTaskStatus(item: TAbstractFile, newEmoji: string): Promise<void> {
+		if (!hasTaskEmoji(getBasename(item))) return;
 
-		// Guard menu action as well when marking as completed
-		if (newEmoji === TASK_EMOJIS.CHECKED) {
-			const allChecked = await this.areAllMarkdownTodosChecked(file);
+		if (newEmoji === TASK_EMOJIS.CHECKED && item instanceof TFile) {
+			const allChecked = await this.areAllMarkdownTodosChecked(item);
 			if (!allChecked) {
 				new Notice('Please complete all checklist items in the note first.');
 				return;
 			}
 		}
 
-		const currentEmoji = extractTaskEmoji(file.basename) || '';
-		const rawTaskName  = extractTaskName(file.basename);
+		const bn           = getBasename(item);
+		const currentEmoji = extractTaskEmoji(bn) || '';
+		const rawTaskName  = extractTaskName(bn);
 		const cleanEmoji   = normalizeEmoji(newEmoji);
 		const newTaskName  = this.reformatNameForNewType(rawTaskName, currentEmoji, cleanEmoji);
 		const newName      = `${cleanEmoji} ${newTaskName}`;
-		await this.renameTaskFile(file, newName);
+		await this.renameTaskFile(item, newName);
 	}
 
 	/**
 	 * Clean up all file explorer checkboxes
 	 */
-	private cleanupFileExplorerCheckboxes() {
+	private cleanupFileExplorerCheckboxes(): void {
 		const checkboxes = document.querySelectorAll('.task-notes-checkbox');
 		checkboxes.forEach(checkbox => checkbox.remove());
 	}
@@ -1555,7 +1555,7 @@ export default class TaskNotesPlugin extends Plugin {
 	/**
 	 * Apply template to a file based on task emoji
 	 */
-	private async applyTemplateToFile(file: TFile, emoji: string, forceApply: boolean = false) {
+	private async applyTemplateToFile(file: TFile, emoji: string, forceApply: boolean = false): Promise<void> {
 		let templatePath = '';
 		
 		// Determine which template to use based on emoji
@@ -1711,6 +1711,11 @@ class TaskNotesSettingTab extends PluginSettingTab {
 		this.addFormatSetting(containerEl, 'Completed task format (✅)', 'Format for completed tasks (emoji is added automatically, do not include it)', 'completedTaskFormat', '{action} - {amount} - {outcome}');
 		this.addFormatSetting(containerEl, 'Cancelled task format (❌)', 'Format for cancelled tasks (emoji is added automatically, do not include it)', 'cancelledTaskFormat', '{action} - {amount} - {outcome}');
 
+		new Setting(containerEl).setName('Folder task formats').setHeading();
+		new Setting(containerEl).setDesc('Formats used when converting folders. Available placeholders: {action}, {amount}, {outcome}');
+		this.addFormatSetting(containerEl, 'Project folder format (🚀)', 'Format for project folders (emoji is added automatically, do not include it)', 'projectFolderFormat', '{action} - {amount} - {outcome}');
+		this.addFormatSetting(containerEl, 'Goal folder format (🎯)', 'Format for goal folders (emoji is added automatically, do not include it)', 'targetFolderFormat', '{action} - {amount} - {outcome}');
+
 		// Apply button for format settings
 		new Setting(containerEl)
 			.addButton(button => button
@@ -1787,7 +1792,7 @@ class TaskNotesSettingTab extends PluginSettingTab {
 		containerEl: HTMLElement,
 		name: string,
 		desc: string,
-		key: 'uncheckedTaskFormat' | 'scheduledTaskFormat' | 'completedTaskFormat' | 'cancelledTaskFormat',
+		key: 'uncheckedTaskFormat' | 'scheduledTaskFormat' | 'completedTaskFormat' | 'cancelledTaskFormat' | 'projectFolderFormat' | 'targetFolderFormat',
 		placeholder: string
 	): void {
 		new Setting(containerEl)
