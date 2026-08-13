@@ -32,3 +32,25 @@ Thumbs.db
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# ── Never publish ────────────────────────────────────────────────────────────
+# Obsidian's OWN generated stylesheet, kept locally so tests can check our rules
+# against the real app.css. It is not ours to redistribute.
+app.css
+
+# THE WHOLE SCRATCH VAULT.
+#
+# test-vault/ is where the plugin is exercised by hand, and it accumulated real
+# notes doing it: a personal daily journal, notes naming colleagues and an
+# employer, private goals. It also holds data.json, which carries live calendar
+# URLs including private ICS tokens, plus megabytes of cached calendar bodies,
+# and a third-party theme that is not ours to redistribute.
+#
+# Ignoring the folder piecemeal left personal notes in the untracked-but-not-
+# ignored state, where a single `git add -A` publishes them permanently. One
+# rule, no gaps.
+#
+# The cost is one test: tests/corpus.test.ts's vault-coverage check skips when
+# the folder is absent. Every row's parse/regenerate proof is pure and still
+# runs from a clone — see the note in that file.
+test-vault/

@@ -1,188 +1,446 @@
-/* ─── Checkbox ─────────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   Task Notes — all styling.
+
+   Conventions:
+   • Every colour comes from an Obsidian CSS variable so themes stay in control.
+   • Sizes/radii/spacing come from the tokens below, never ad-hoc values.
+   • Selectors are scoped to plugin classes; nothing here restyles core Obsidian.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* THE TOKEN SCOPE. Anything that is a root of its own — a view's contentEl, a
+   modal's contentEl, a popover — must be listed here, or every `--tn-*` inside
+   it is undefined and silently drops the declaration that used it. That is
+   exactly what happened to the properties sidebar: 21 rules were dead. A test
+   in tests/styles-hygiene.test.ts now checks every `contentEl.addClass()`
+   against this list. */
+.task-notes-timeline-view,
+.task-notes-properties-view,
+.task-modal,
+.tn-timeline,
+/* A Notice is mounted in Obsidian's own .notice-container at the app root, so
+   it is inside NONE of the other roots here — every --tn-* inside it would
+   resolve to nothing without this line. */
+.task-notes-notice,
+.task-notes-suggest {
+    /* Radii */
+    --tn-radius-s: var(--radius-s, 4px);
+    --tn-radius-m: var(--radius-m, 8px);
+    --tn-radius-pill: 999px;
+
+    /* Spacing scale */
+    --tn-space-1: 2px;
+    --tn-space-2: 4px;
+    --tn-space-3: 8px;
+    --tn-space-4: 12px;
+
+    /* One height for every button, pill and chip in the chrome, and one for a
+       form field. Four different derived heights used to share a 45px toolbar. */
+    --tn-control-h: 26px;
+    --tn-field-h: 30px;
+
+    /* Type scale */
+    /* THREE steps, and they are visibly different. There used to be four, of
+       which two — `xs` at 12px and `s` at 13px — were 1px apart and used 21 and
+       10 times as if they were distinct levels; at that distance a panel mixing
+       them reads as a rendering glitch rather than a hierarchy. They are now one
+       step. `--tn-font-l` went with them: it had a single use, at 20px, which was
+       7px above everything near it. */
+    --tn-font-s: var(--font-ui-smaller, 0.72rem);
+    --tn-font-m: var(--font-ui-medium, 0.88rem);
+
+    /* Chrome */
+    --tn-ruler-width: 52px;
+    --tn-cell-min-height: 64px;
+    --tn-border: 1px solid var(--background-modifier-border);
+    --tn-border-strong: 1px solid var(--background-modifier-border-hover);
+    /* The RULED GRID behind the events, deliberately lighter than --tn-border.
+       Hour lines, the half-hour marks and the column separators all read from
+       this, so the whole grid recedes or advances as one number. Structure
+       should be felt, not seen: it is scaffolding for the blocks, not content.
+
+       65%, not less. Obsidian's own border sits near 0.13 alpha in both themes,
+       so this lands around 0.085 — inside the 6–9% (light) / 8–12% (dark) band
+       that dense grids are drawn at, and still clearly lighter than the --tn-border
+       a block wears, which is what makes the blocks advance and the grid recede.
+       Going further made the hour lines vanish in dark themes. */
+    --tn-grid-line: color-mix(in srgb, var(--background-modifier-border) 65%, transparent);
+    /* THE CANVAS the blocks sit on — one step deeper than a block's own surface.
+       Before this, a block and the grid behind it were both --background-primary:
+       a grey rectangle on an identical grey sheet, separated by a 1px line and
+       nothing else. That is what "bland and a bit unübersichtlich" was. A surface
+       delta is the cheapest possible separation — it costs no hue, no border and
+       no shadow, and it works in every theme because both sides are the theme's
+       own tokens. */
+    --tn-canvas: var(--background-secondary);
+    --tn-focus-ring: 0 0 0 2px var(--background-modifier-border-focus, var(--interactive-accent));
+    /* "This one" — focus, today, the active task, a drop target. One weight, so
+       every ring in the plugin is the same ring. (Overlap used to be on this
+       list; it no longer draws anything.) */
+    --tn-ring: 2px;
+    --tn-transition: 0.15s ease;
+
+    /* Elevation — one shadow, two strengths, so nothing invents its own. */
+    /* The ONE elevation in the grid, and it belongs to the one surface that
+       genuinely floats: an expanded block, which covers its neighbours. Every
+       block used to carry a small shadow and the current one a 20px glow, which
+       is elevation used as decoration — blocks sit on a ruled grid and need no
+       lift to read as blocks. */
+    --tn-shadow-lift: 0 6px 20px var(--background-modifier-box-shadow, rgba(0, 0, 0, 0.35));
+
+    /* The width of the state edge every block and chip carries. */
+    /* The state bar. 3px, not 4: against the block's own 1px hairline, 4px was a
+       4:1 slab — and on a month chip it was wider than the chip's own padding.
+       This is the single number behind "some things look kind of thick". */
+    --tn-edge: 3px;
+    /* One indent step for a nested row, and one dimming for anything done. */
+    --tn-indent: 12px;
+    --tn-done-opacity: 0.55;
+    /* "Quieter than its neighbours" and "not available". Between them these
+       replace seven different hand-picked opacities. Note `--text-muted` and
+       `--text-faint` stay as they are: those are Obsidian's own two text levels
+       and collapsing them would flatten the only hierarchy the grid has. */
+    --tn-quiet: 0.75;
+    --tn-disabled: 0.4;
+    /* "Not in the day plan" — one edge, written three ways before. */
+    /* "Right now" — the needle and the block it is inside. */
+    /* NOW — the theme's red, DEEPENED. Two failed attempts are behind this value.
+       First it was mixed toward `white` to make it louder: white raises green and
+       blue, which is what "washed out" is made of, so it came out pink. Then it
+       was left to the theme entirely — but this vault runs Tokyo Night, whose
+       --color-red is rgb(255, 117, 127), a salmon that is already washed out
+       before we touch it. Deferring to a theme cannot produce a deep red when the
+       theme's red is not deep.
+       So: mix toward `red` first (which drives green and blue DOWN — the exact
+       opposite of the white mix, and what saturation is), then a little toward
+       `darkred` for depth. Tokyo Night's salmon becomes ~#e8383d; Obsidian's own
+       dark red becomes ~#e62224. Both clear 3:1 against the canvas and the cards,
+       which a genuinely dark crimson would not on a dark theme — the depth here
+       has to be bought as chroma, not as darkness. */
+    --tn-now-color: color-mix(in srgb, color-mix(in srgb, var(--color-red, #e5534b) 60%, red) 80%, darkred);
+    /* How far an expanded block may grow before it starts scrolling instead. */
+    /* A share of the PANE, like the all-day lane — `vh` is the window, so in a
+       300px docked pane an expanded block used to grow to 520px and bury it. */
+    /* NOT resolved here. --tn-pane-h is published by JS onto `.tn-grid`, a
+       DESCENDANT of this token scope, and a custom property's var()s are
+       substituted on the element where the property is DECLARED — so at this
+       level --tn-pane-h is always unset, the 100vh fallback always won, and the
+       window-based value then inherited down. The cap that was supposed to stop
+       an expanded block burying a 300px docked pane never applied.
+       Declaring it as the raw share and resolving it at the point of use fixes
+       that; see `.tn-block-expanded`. */
+    --tn-expanded-share: 0.7;
+    --tn-expanded-cap: 520px;
+    --tn-rail-width: 190px;
+    /* One fallback for "an event with no colour of its own", not four. */
+    --tn-event-color: var(--tn-default-event-color, #4c78a8);
+}
+
+
+/* ═══ Scrollbars ═════════════════════════════════════════════════════════════
+   The grid reserves its scrollbar's width permanently (see .tn-scroll), and the
+   header rows mirror that reservation to stay aligned with their columns. With a
+   platform-width scrollbar that leaves a wide empty strip down the right of the
+   whole view. Narrowing it to 8px and drawing a visible thumb in it turns that
+   strip into what it actually is, without giving up the alignment. */
+.tn-timeline ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.tn-timeline ::-webkit-scrollbar-track,
+.tn-timeline ::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+.tn-timeline ::-webkit-scrollbar-thumb {
+    background: var(--background-modifier-border);
+    border-radius: var(--tn-radius-pill);
+}
+
+.tn-timeline ::-webkit-scrollbar-thumb:hover {
+    background: var(--background-modifier-border-hover);
+}
+
+/* Times, counters and day numbers line up column-wise wherever they appear. */
+.tn-block-time,
+.tn-row-time,
+.tn-block-count,
+.tn-hour span,
+.tn-cal-num,
+.tn-title,
+.tn-day-header,
+.tn-rail-title,
+.tn-mini-title,
+.tn-chip-warn,
+.tn-allday-toggle {
+    /* Every number that changes as you navigate: without this the whole header
+       jitters sideways when the date steps. */
+    font-variant-numeric: tabular-nums;
+}
+
+/* ═══ Checkbox (explorer + footer) ═══════════════════════════════════════════ */
+/* The margin is for the FILE EXPLORER copy of this class, where --tn-space-4 is
+   undefined and the 12px fallback applies. Inside the properties header the
+   token resolves and stacked on that header's own gap, making one 20px gap out
+   of two deliberate 8px and 12px ones. */
 .task-notes-checkbox {
-    margin-right: 12px;
+    margin-right: var(--tn-space-4, 12px);
     vertical-align: middle;
     cursor: pointer;
     flex-shrink: 0;
     width: 18px;
     height: 18px;
+}
+
+.task-notes-properties-header .task-notes-checkbox {
+    margin-right: 0;
+    /* Aligns with the first line of a wrapping name, not its middle. The header
+       says `align-items: flex-start` for exactly this reason; `align-self:
+       center` on the item used to override it and re-create the bug the comment
+       claims to have fixed. */
+    align-self: flex-start;
+    margin-top: 1px;
+}
+
+.task-notes-explorer-checkbox {
     align-self: center;
 }
 
-/* ─── Footer title wrapper ──────────────────────────────────────────────────── */
-.task-notes-title-wrapper {
-    display: flex;
-    align-items: flex-start;
-    justify-content: flex-start;
-    gap: 12px;
-    flex-wrap: nowrap;
-    width: 100%;
+/* The explorer checkbox mirrors status; it is not an input the user edits.
+   It is deliberately NOT `disabled`, or Chromium would swallow its contextmenu. */
+.task-notes-explorer-checkbox[aria-disabled='true'] {
+    cursor: context-menu;
+    opacity: var(--tn-quiet);
 }
 
-/* ─── Footer panel (fixed bar at bottom of note view) ───────────────────────── */
-.task-notes-footer {
-    position: fixed;
-    bottom: 30px;
-    left: 0;
-    right: 0;
-    width: 100%;
-    border-top: 1px solid var(--background-modifier-border);
-    padding: 10px 20px;
-    background: var(--background-primary);
-    backdrop-filter: blur(10px);
-    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.12);
-    z-index: 9999;
-}
-
-/* ─── Property inputs ────────────────────────────────────────────────────────── */
-.task-notes-property-inputs {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 12px;
-    align-items: center;
-    width: 100%;
-}
-
-.task-notes-inputs-container {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 8px;
-    width: 100%;
-}
-
-.task-notes-input-group {
+/* ═══ Task properties (sidebar view) ═════════════════════════════════════════
+   This was a bar pinned to the bottom of the note. Obsidian floats its own
+   status bar over exactly that corner, so the last field and the Apply button
+   were covered — and it took height from every task note whether or not you
+   were editing anything. A sidebar leaf has room and collides with nothing. */
+.task-notes-properties-view {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    flex: 1;
+    gap: var(--tn-space-3);
+    padding: var(--tn-space-3);
+}
+
+.task-notes-properties-header {
+    display: flex;
+    /* Top, not centre: the name wraps to two or three lines on a long task, and
+       a centred checkbox then floats in the middle of them. */
+    align-items: flex-start;
+    gap: var(--tn-space-3);
+    padding-bottom: var(--tn-space-4);
+    border-bottom: var(--tn-border);
+}
+
+.task-notes-properties-name {
+    min-width: 0;
+    font-weight: 600;
+    font-size: var(--tn-font-m);
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+}
+
+/* The type, at a glance. Sized independently of the name so a two-line title
+   does not make the emoji tower over it. */
+.task-notes-properties-emoji {
+    margin-right: var(--tn-space-2);
+    font-size: var(--tn-font-m);
+}
+
+/* A bordered group per concern — the dates, then the fields the format declares.
+   Without them the panel was one undifferentiated column of six inputs and you
+   could not tell which of them the filename grammar actually owns. */
+.tn-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--tn-space-3);
+    padding: var(--tn-space-3);
+    /* NO border: every input inside the card draws its own, and a border around
+       a stack of bordered fields was a frame around frames — the "border in a
+       border" that made the panel read as cluttered. The surface delta below is
+       what separates the card from the panel. */
+    border-radius: var(--tn-radius-m);
+    /* NOT --background-secondary: a side leaf already has that colour, so the
+       card was the same shade as the panel behind it and read as nothing at all.
+       --background-primary is the "raised surface" of the pair. */
+    background: var(--background-primary);
+}
+
+.tn-card-title {
+    font-size: var(--tn-font-s);
+    font-weight: 600;
+    color: var(--text-muted);
+    line-height: 1;
+}
+
+/* One field per row: a sidebar is tall and narrow, which is the shape a form
+   wants anyway — the old bar squeezed six fields into one line. */
+.task-notes-properties-fields {
+    display: flex;
+    flex-direction: column;
+    gap: var(--tn-space-4);
+}
+
+.task-notes-properties-empty {
+    color: var(--text-muted);
+    font-size: var(--tn-font-s);
+    text-align: center;
+    text-wrap: balance;
+    padding: var(--tn-space-4);
+}
+
+/* ═══ Shared input widget (properties view + task modal) ═════════════════════ */
+.tn-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--tn-space-2);
     min-width: 0;
 }
 
-.task-notes-label {
-    font-size: 0.7rem;
+.tn-input-label {
+    font-size: var(--tn-font-s);
     color: var(--text-muted);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    line-height: 1;
-    margin: 0;
-    padding: 0;
+    font-weight: 500;
+    /* Not 1: at 12px with `overflow: hidden` that clipped the descender off
+       every "Identity", "Cycle" and "Category". */
+    line-height: 1.3;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.task-notes-text-input,
-.task-notes-date-input,
-.task-notes-time-input {
-    padding: 5px 8px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 5px;
-    background: var(--background-secondary);
-    color: var(--text-normal);
-    font-size: 0.8rem;
-    font-family: var(--font-interface);
+.tn-input {
     width: 100%;
-    transition: border-color 0.15s ease, background 0.15s ease;
-    height: 30px;
     box-sizing: border-box;
-    margin: 0;
+    padding: var(--tn-space-2) var(--tn-space-3);
+    border: var(--tn-border);
+    border-radius: var(--tn-radius-s);
+    /* Obsidian's own field colour. The panel, the card and the field were all
+       --background-secondary, so the whole sidebar was one flat wash with three
+       invisible hairlines in it — which is what "the styling looks off" was. */
+    background: var(--background-modifier-form-field);
+    color: var(--text-normal);
+    font-family: var(--font-interface);
+    font-size: var(--tn-font-s);
+    height: var(--tn-field-h);
+    transition: border-color var(--tn-transition), background var(--tn-transition);
 }
 
-.task-notes-date-input,
-.task-notes-time-input {
-    font-size: 0.75rem;
+.tn-input-date,
+.tn-input-time {
+    font-size: var(--tn-font-s);
 }
 
-.task-notes-text-input:hover,
-.task-notes-date-input:hover,
-.task-notes-time-input:hover {
+.tn-input:hover {
     border-color: var(--background-modifier-border-hover);
-    background: var(--background-secondary-alt);
 }
 
-.task-notes-text-input:focus,
-.task-notes-date-input:focus,
-.task-notes-time-input:focus {
+.tn-input:focus-visible {
     outline: none;
     border-color: var(--interactive-accent);
-    background: var(--background-primary);
-    box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.15);
+    box-shadow: var(--tn-focus-ring);
 }
 
-/* ─── Apply button ────────────────────────────────────────────────────────────── */
-.task-notes-apply-btn {
-    padding: 0 18px;
-    border: none;
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-    border-radius: 5px;
+/* A field the active format requires but that is still empty. */
+.tn-input-invalid {
+    border-color: var(--text-error, var(--color-red));
+}
+
+/* Native picker icon: let the theme's colour scheme drive it (no hard invert). */
+.tn-input-date::-webkit-calendar-picker-indicator,
+.tn-input-time::-webkit-calendar-picker-indicator {
     cursor: pointer;
-    font-size: 0.8rem;
+    opacity: var(--tn-quiet);
+    transition: opacity var(--tn-transition);
+}
+
+.tn-input-date::-webkit-calendar-picker-indicator:hover,
+.tn-input-time::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+}
+
+/* Colour comes from Obsidian's own `mod-cta`, which the element also carries.
+   Ours used to set `background` here and LOST: app.css has
+   `button:not(.clickable-icon) { background-color: … }` at specificity (0,1,1),
+   and a lone class is (0,1,0). There is no @layer in app.css, so source order
+   never got a say and the Apply button rendered as a plain grey button. */
+/* Full-width: the panel is a single narrow column, and a small left-hung button
+   under a stack of full-width fields read as an afterthought. One primary
+   action, the whole width, at the end — the same shape every dialog here has. */
+.task-notes-apply-btn {
+    align-self: stretch;
+    justify-content: center;
+    padding: 0 var(--tn-space-4);
+    border: none;
+    border-radius: var(--tn-radius-s);
+    cursor: pointer;
+    font-size: var(--tn-font-s);
     font-weight: 600;
-    transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
     white-space: nowrap;
-    box-shadow: 0 2px 6px rgba(var(--interactive-accent-rgb), 0.25);
-    height: 30px;
+    height: var(--tn-field-h);
     display: flex;
     align-items: center;
-    align-self: flex-end;
-    margin: 0;
+    transition: background var(--tn-transition), transform 0.1s ease;
 }
 
 .task-notes-apply-btn:hover {
-    background: var(--interactive-accent-hover);
     transform: translateY(-1px);
-    box-shadow: 0 4px 10px rgba(var(--interactive-accent-rgb), 0.35);
 }
 
 .task-notes-apply-btn:active {
     transform: translateY(0);
-    box-shadow: 0 2px 6px rgba(var(--interactive-accent-rgb), 0.2);
 }
 
-/* ─── Template file suggestion dropdown ───────────────────────────────────────── */
-.suggestion-container {
-    position: absolute;
-    background: var(--background-primary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 6px;
-    max-height: 200px;
-    overflow-y: auto;
-    z-index: 10000;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
-    width: var(--task-notes-suggest-width, 240px);
+.task-notes-apply-btn:disabled {
+    opacity: var(--tn-disabled);
+    cursor: not-allowed;
 }
 
-.suggestion-item {
-    padding: 7px 12px;
-    cursor: pointer;
-    font-size: 0.85rem;
-    color: var(--text-normal);
-    transition: background 0.1s ease;
+.task-notes-apply-btn:disabled:hover {
+    transform: none;
 }
 
-.suggestion-item:hover,
-.suggestion-item.selected {
-    background: var(--background-modifier-hover);
-    color: var(--text-normal);
+.task-notes-apply-btn:focus-visible {
+    outline: none;
+    box-shadow: var(--tn-focus-ring);
 }
 
-/* ─── Task properties modal ───────────────────────────────────────────────────── */
-
-/* Ensure the modal sits above the footer */
-.modal {
-    z-index: 10001 !important;
+/* The folder under a suggested note: disambiguation, not the thing you are
+   choosing, so it is quieter than the name above it. */
+.tn-suggest-path {
+    font-size: var(--tn-font-s);
+    color: var(--text-faint);
 }
 
-/* Do NOT override .modal-bg z-index — let Obsidian handle it */
+/* ═══ Template file suggester ════════════════════════════════════════════════ */
+/* Scoped to our own suggester — unscoped `.suggestion-*` rules would restyle the
+   quick switcher, command palette and every other plugin's suggesters. */
+.task-notes-suggest.suggestion-container {
+    max-height: 220px;
+    border-radius: var(--tn-radius-m);
+}
 
+.task-notes-suggest .suggestion-item {
+    font-size: var(--tn-font-m);
+}
+
+/* ═══ Task properties modal ══════════════════════════════════════════════════ */
+/* Selectable, so the old name can be copied out before it is replaced. Obsidian
+   sets `body { user-select: none }` app-wide (app.css), so every piece of text
+   in a plugin's own UI is unselectable until it opts back in — this one is the
+   whole point of the row. */
 .task-modal-original-name {
-    padding: 8px 12px;
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
+    padding: var(--tn-space-3) var(--tn-space-4);
     background: var(--background-secondary);
-    border-radius: 6px;
-    margin-bottom: 14px;
-    font-size: 0.88em;
+    border-radius: var(--tn-radius-m);
+    margin-bottom: var(--tn-space-4);
+    font-size: var(--tn-font-m);
     color: var(--text-muted);
     word-break: break-word;
 }
@@ -190,81 +448,80 @@
 .task-modal-form {
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    margin-top: 16px;
+    gap: var(--tn-space-4);
+    margin-top: var(--tn-space-4);
 }
 
-.task-modal-input-group {
+/* The "create as" row in the drag-to-create prompt: ordinary buttons, wrapping,
+   with the selected one painted the same way the selected range pill is. One
+   button vocabulary, so a choice here looks like a choice anywhere. */
+.tn-choice {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--tn-space-2);
+}
+
+.tn-choice-btn.tn-active {
+    background: var(--interactive-accent);
+    border-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.tn-choice-btn.tn-active:hover {
+    background: var(--interactive-accent-hover, var(--interactive-accent));
+    border-color: var(--interactive-accent-hover, var(--interactive-accent));
+    color: var(--text-on-accent);
+}
+
+/* A field the current choice has superseded. `display: none` rather than
+   removing it: the input keeps its value, so switching back to Line restores
+   what was typed instead of silently discarding it. */
+.tn-hidden {
+    display: none;
+}
+
+/* A confirmation's body keeps its line breaks, so a list of affected files
+   reads as a list rather than one run-on sentence. */
+.tn-confirm-body {
+    white-space: pre-line;
+    color: var(--text-muted);
+}
+
+/* The fields a chosen task type needs, revealed under the picker. Empty and
+   invisible until a type is picked — the gap only exists when there is
+   something in it, so Line and Note look exactly as they did. */
+.tn-choice-fields:not(:empty) {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: var(--tn-space-4);
+    /* Set apart from the choice row above, so the fields read as belonging to
+       the type you just picked rather than as more of the same form. */
+    padding-top: var(--tn-space-3);
+    border-top: var(--tn-border);
 }
 
-.task-modal-input-group label {
-    font-weight: 600;
-    color: var(--text-muted);
-    font-size: 0.78em;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-}
-
-.task-modal-text-input,
-.task-modal-date-input,
-.task-modal-time-input {
-    width: 100%;
-    padding: 7px 10px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 5px;
-    background: var(--background-primary);
-    color: var(--text-normal);
-    font-family: var(--font-interface);
-    font-size: 0.9em;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
-    box-sizing: border-box;
-}
-
-.task-modal-text-input:focus,
-.task-modal-date-input:focus,
-.task-modal-time-input:focus {
-    outline: none;
-    border-color: var(--interactive-accent);
-    box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
-}
-
-/* Date/time picker icon styling */
-.task-modal-date-input::-webkit-calendar-picker-indicator,
-.task-modal-time-input::-webkit-calendar-picker-indicator {
-    cursor: pointer;
-    opacity: 0.7;
-    filter: invert(0.6);
-    transition: opacity 0.15s ease;
-}
-
-.task-modal-date-input::-webkit-calendar-picker-indicator:hover,
-.task-modal-time-input::-webkit-calendar-picker-indicator:hover {
-    opacity: 1;
-}
-
+/* Inputs are roomier in a modal than in a sidebar. */
 .task-modal-button-group {
     display: flex;
-    gap: 8px;
+    gap: var(--tn-space-3);
     justify-content: flex-end;
-    margin-top: 6px;
+    margin-top: var(--tn-space-3);
 }
 
 .task-modal-cancel-btn,
 .task-modal-submit-btn {
-    padding: 7px 18px;
-    border-radius: 5px;
-    font-size: 0.88em;
+    padding: 0 var(--tn-space-4);
+    height: var(--tn-field-h);
+    border-radius: var(--tn-radius-s);
+    font-size: var(--tn-font-s);
     font-weight: 600;
     cursor: pointer;
-    transition: background 0.15s ease;
+    transition: background var(--tn-transition);
 }
 
-.task-modal-cancel-btn {
+button.task-modal-cancel-btn {
     background: var(--background-modifier-hover);
-    border: 1px solid var(--background-modifier-border);
+    border: var(--tn-border);
     color: var(--text-normal);
 }
 
@@ -272,110 +529,2184 @@
     background: var(--background-modifier-border);
 }
 
+/* Also `mod-cta` — see the note on .task-notes-apply-btn. */
 .task-modal-submit-btn {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
     border: none;
-    box-shadow: 0 2px 6px rgba(var(--interactive-accent-rgb), 0.25);
 }
 
-.task-modal-submit-btn:hover {
-    background: var(--interactive-accent-hover);
+.task-modal-cancel-btn:focus-visible,
+.task-modal-submit-btn:focus-visible {
+    outline: none;
+    /* This was a hand-written copy of --tn-focus-ring, character for character. */
+    box-shadow: var(--tn-focus-ring);
 }
 
-/* Settings tab full-width inputs */
+/* ═══ Settings pane ═════════════════════════════════════════════════════════ */
 .task-notes-input-fullwidth {
     width: 100%;
     max-width: 100%;
 }
 
-/* Template variables list */
-.task-notes-variables {
-    margin: 4px 0 8px 16px;
-    padding: 0;
-    font-size: 0.88em;
+/* The fields of one remote calendar, hung under its own name/status row. */
+.task-notes-ics-row {
+    border-top: none;
+    padding-top: 0;
+}
+
+.task-notes-ics-row .setting-item-info {
+    display: none;
+}
+
+.task-notes-ics-row .setting-item-control {
+    flex-wrap: wrap;
+    gap: var(--tn-space-2);
+    justify-content: flex-start;
+}
+
+.task-notes-ics-row input[type='text'] {
+    flex: 1 1 180px;
+    min-width: 0;
+}
+
+.task-notes-ics-status.task-notes-ics-error {
+    color: var(--text-error);
+}
+
+/* Reference material in settings, opened on demand (name formats). */
+.task-notes-advanced > summary {
+    cursor: pointer;
+    padding: var(--tn-space-3) 0;
     color: var(--text-muted);
-    line-height: 1.8;
+    font-size: var(--tn-font-s);
 }
 
-/* ─── Tablet layout (≤ 900 px) ────────────────────────────────────────────────── */
-@media (max-width: 900px) {
-    .task-notes-footer {
-        padding: 8px 12px;
+.task-notes-advanced > summary:hover {
+    color: var(--text-normal);
+}
+
+/* The remote-calendar list, redrawn on its own so adding one does not scroll
+   the whole settings pane back to the top. */
+.task-notes-ics-list {
+    display: block;
+}
+
+.task-notes-ics-list .setting-item:first-child {
+    border-top: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Timeline & calendar views
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* The class is added TO `.view-content`, so this must not be a descendant rule. */
+.view-content.task-notes-timeline-view {
+    padding: 0;
+    overflow: hidden;
+}
+
+.tn-timeline {
+    display: flex;
+    flex-direction: column;
+    /* A second container, for the CHROME. `.tn-body-wrap` only contains the grid,
+       so the toolbar could never be queried — its one responsive rule silently
+       matched nothing. Inline-axis only, so vertical flexing is untouched. */
+    container-type: inline-size;
+    container-name: tn-shell;
+    height: 100%;
+    min-height: 0;
+}
+
+/* ─── Toolbar ─────────────────────────────────────────────────────────────── */
+.tn-toolbar {
+    display: flex;
+    align-items: center;
+    /* Rows closer than the controls inside them, so a wrapped toolbar reads as
+       one block of chrome rather than three stacked strips. */
+    gap: var(--tn-space-1) var(--tn-space-3);
+    flex-wrap: wrap;
+    padding: var(--tn-space-2) var(--tn-space-3);
+    /* NO rule here. The toolbar, the day-header row and the all-day lane were
+       three full-width surfaces stacked down the top of the pane, each closed by
+       a strong rule — three heavy horizontal lines before a single event was
+       drawn. The background change already separates this from the header row;
+       one strong edge now closes the whole chrome band, at the bottom of the
+       lane. (Material 3: full-width dividers used sparingly; prefer white space
+       or a surface change.)
+
+       PRIMARY, like a card — the canvas below is the deeper surface now, so the
+       stack reads chrome / canvas / cards with only two colours: the toolbar and
+       the header row are the same field the blocks are cut from, and the grid is
+       the well they sit in. Chrome and canvas both being secondary made the
+       whole pane one flat sheet again. */
+    background: var(--background-primary);
+}
+
+/* space-3 BETWEEN groups, space-2 within one — the toolbar's groups could not be
+   told apart when both gaps were the same 4px. */
+.tn-nav {
+    display: flex;
+    gap: var(--tn-space-2);
+}
+
+/* THE FLAT-BUTTON RESET.
+   Obsidian's `button:not(.clickable-icon)` (app.css) sets `box-shadow:
+   var(--input-shadow)` — an inset 1px ring PLUS a drop shadow — and only the
+   macOS theme zeroes it. So on Linux and Windows every "flat" control in this
+   plugin drew a ring and a shadow nobody asked for, and the bordered ones drew a
+   DOUBLED edge. This is a large part of what "things look kind of thick" was,
+   and it is invisible to anyone developing on a Mac.
+   Focus rings are declared later and with higher specificity, so they still
+   win — this only removes the resting decoration. */
+.tn-timeline button,
+.task-notes-properties-view button,
+.task-modal button,
+.task-notes-notice button {
+    box-shadow: none;
+}
+
+/* Inline icons (Icon.svelte) inherit the button's colour and sit on its baseline. */
+.tn-icon {
+    display: block;
+    flex: 0 0 auto;
+}
+
+button.tn-btn,
+button.tn-range {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--tn-space-2);
+    background: var(--background-primary);
+    border: var(--tn-border);
+    color: var(--text-normal);
+    border-radius: var(--tn-radius-m);
+    /* One height for every control in the toolbar. Four derived heights used to
+       share this row — 28.2 / 26 / 24.2 / 24px — so nothing lined up with
+       anything and the row was as tall as the tallest accident in it. */
+    height: var(--tn-control-h);
+    padding: 0 var(--tn-space-3);
+    cursor: pointer;
+    font-size: var(--tn-font-s);
+    line-height: 1;
+    transition: background var(--tn-transition);
+}
+
+.tn-btn:hover,
+.tn-range:hover {
+    background: var(--background-modifier-hover);
+}
+
+/* One depth now that the pills are ordinary buttons: the `.tn-ranges .tn-range`
+   rules that used to out-specify this are gone, so the press state lands. */
+.tn-btn:active,
+.tn-range:active {
+    background: var(--background-modifier-active-hover, var(--background-modifier-hover));
+}
+
+/* A heading, not a control — see the comment beside it in Timeline.svelte. */
+.tn-title {
+    font-weight: 600;
+    flex: 1;
+    min-width: 0;
+    font-size: var(--tn-font-m);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* The pills and the `›` that opens the rest, kept together at the pill spacing.
+   The button is deliberately OUTSIDE .tn-ranges (which scrolls and is masked) —
+   an overflow control that scrolls away with the thing it reveals is useless,
+   and the mask sat on top of it. */
+.tn-range-group {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    gap: var(--tn-space-1);
+}
+
+/* Scrolls rather than wraps, with its scrollbar hidden — so without the mask it
+   truncated silently and the ranges past the edge looked absent rather than
+   scrolled. currentColor rather than a literal: a mask reads only the alpha
+   channel, so any opaque colour does, and this needs no raw value in the file. */
+.tn-ranges {
+    display: flex;
+    flex-wrap: nowrap;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    /* The fade lives on .tn-overflowing below, NOT here: `100%` of a
+       non-overflowing element is its own width, so an unconditional mask faded
+       the last 14px of the row at all times — a permanent smudge rather than a
+       hint that something is scrolled out of view. */
+    /* NO track. The pills used to sit in a tinted, inset container with their
+       own borders stripped — a second button vocabulary in a toolbar that only
+       needed one, which is what "the day/3day is not in the same style as the
+       other buttons" was pointing at. They are ordinary .tn-btn-shaped buttons
+       now (the base rule at the top of this section already covers both), and
+       only the SELECTED one is painted. */
+    height: var(--tn-control-h);
+    box-sizing: border-box;
+    gap: var(--tn-space-1);
+}
+
+/* The pills live in a horizontal scroller, and `overflow-x: auto` forces the
+   block axis to clip as well (a `visible` axis paired with a non-visible one
+   computes to `auto`) — so an outline drawn OUTSIDE a pill was sliced off top
+   and bottom, and keyboard focus was invisible on the control you tab to first.
+   Drawn inside instead. The WIDTH still comes from --tn-ring; only the offset
+   is restated. */
+.tn-ranges .tn-range:focus-visible {
+    outline-offset: calc(-1 * var(--tn-ring));
+}
+
+/* …and only when there IS more to see. Set by a ResizeObserver in
+   Timeline.svelte, because the pane resizes without any state here changing. */
+.tn-ranges.tn-overflowing {
+    mask-image: linear-gradient(to right, currentColor calc(100% - 14px), transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, currentColor calc(100% - 14px), transparent 100%);
+}
+
+/* Selected — the one thing that distinguishes a range pill from any other
+   button in the row, and the only thing that should. */
+.tn-range.tn-active {
+    background: var(--interactive-accent);
+    border-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.tn-range.tn-active:hover {
+    background: var(--interactive-accent-hover, var(--interactive-accent));
+    border-color: var(--interactive-accent-hover, var(--interactive-accent));
+    color: var(--text-on-accent);
+}
+
+/* The overflow pill stays a CONTROL even when it carries the active range's
+   name: the chevron is always drawn, and it keeps a live hover. */
+.tn-range-more {
+    gap: var(--tn-space-1);
+    padding-inline: var(--tn-space-2);
+}
+
+/* The label carries the active range's name, which is the longest text in the
+   toolbar; without this it pushed the chevron out of the pill. */
+.tn-range-more-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tn-range-more .tn-icon {
+    opacity: var(--tn-quiet);
+    transition: opacity var(--tn-transition);
+}
+
+.tn-range-more:hover .tn-icon {
+    opacity: 1;
+}
+
+/* The error boundary's fallback: honest, centred, and offering the one action
+   that helps. Shown instead of a silently frozen grid. */
+.tn-grid-failed {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--tn-space-3);
+    color: var(--text-muted);
+    font-size: var(--tn-font-s);
+}
+
+.tn-body-wrap {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    /* Layout responds to the PANE's width, not the window's — a timeline docked
+       in a narrow sidebar gets the compact layout even on a wide screen. */
+    container-type: inline-size;
+    container-name: tn-body;
+}
+
+/* ── Toolbar: three prominent controls, the rest de-emphasised ── */
+button.tn-btn-ghost {
+    background: none;
+    border-color: transparent;
+    color: var(--text-muted);
+    padding: var(--tn-space-2);
+}
+
+.tn-btn-ghost:hover {
+    color: var(--text-normal);
+    background: var(--background-modifier-hover);
+}
+
+/* ON. These toggles emitted `.tn-active` and `aria-pressed` and painted NOTHING —
+   the pressed and unpressed "show completed items" button were byte-identical,
+   so the only way to know whether the filter was on was to count missing blocks.
+   Accent, because selection is accent everywhere else here; no new hue. */
+.tn-btn-ghost.tn-active {
+    color: var(--interactive-accent);
+    background: var(--background-modifier-hover);
+}
+
+button.tn-chip-warn {
+    font-size: var(--tn-font-s);
+    padding: var(--tn-space-1) var(--tn-space-2);
+    border-radius: var(--tn-radius-pill);
+    /* Overlapping blocks are two things at once, which is a rule you keep — so
+       this is a real warning and is drawn as one. Greyed out it read as chrome. */
+    border: 1px solid var(--background-modifier-border);
+    background: none;
+    color: var(--text-warning, var(--color-orange));
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.tn-chip-warn:hover {
+    background: color-mix(in srgb, var(--text-warning, var(--color-orange)) 12%, transparent);
+}
+
+/* OVERLAP. A thin warning-coloured edge down the RIGHT of the block — the side
+   the collision is on, so the mark points at the thing it is about.
+   Not the full-height stripe this originally was (a separate ::after overlay);
+   just the block's own border, recoloured. On a day with eight collisions that
+   is eight hairlines rather than eight bars.
+   It sat on the TOP for one release, out of a worry that a right-hand mark would
+   read as a gap between two side-by-side blocks. With the canvas now a different
+   surface from the cards, the gap between neighbours is visible on its own and
+   the orange reads as what it is: an edge. */
+/* `.tn-block.` qualified — (0,2,0). Declared BEFORE the .tn-block base rule,
+   whose `border` shorthand resets every longhand written here, so unqualified
+   this mark simply never painted. Third time this exact trap has been sprung in
+   this file; tests/styles-hygiene.test.ts now guards the whole class of it. */
+.tn-block.tn-block-overlap {
+    border-right: var(--tn-ring) solid var(--text-warning, var(--color-orange));
+}
+
+/* Nothing to re-erase now that the mark is on the right: a continuation's
+   transparent TOP edge and the overlap's RIGHT edge no longer compete. */
+
+/* A block whose line runs past midnight is drawn to the day edge and is not
+   draggable — its geometry is not its duration. */
+/* Explicit width: `.tn-block { border: none }` leaves the width at `medium`, so
+   setting only the style drew a 3px dashed bar and ate 3px of the block. */
+/* `.tn-block.` qualified, all through this group. These rules are declared
+   BEFORE `.tn-block`, at the same (0,1,0) specificity — and `.tn-block` sets the
+   `border` and `border-radius` SHORTHANDS, which reset every longhand written
+   here. Every mark below was silently doing nothing: a line running past
+   midnight looked exactly like one that ends at 24:00, and the two halves of a
+   multi-day event kept their rounded corners and their edges instead of reading
+   as one shape. */
+/* `currentColor` here was --text-normal — a dashed line at roughly ten times the
+   contrast of every other line in the grid, for a marginal state. The dash is
+   what carries it; it does not also need to be the boldest thing on screen. */
+.tn-block.tn-block-wrap {
+    cursor: default;
+    border-bottom: 1px dashed var(--background-modifier-border-hover);
+}
+
+/* One day of a multi-day event. The edge that continues loses its rounding and
+   its border, so two days of the same event read as one shape interrupted by
+   midnight rather than as two separate bookings. Not draggable, for the same
+   reason as .tn-block-wrap: the geometry is the day, not the duration. */
+.tn-block.tn-block-from-before,
+.tn-block.tn-block-into-next {
+    cursor: default;
+}
+
+.tn-block.tn-block-from-before {
+    border-top-color: transparent;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}
+
+/* `.tn-block-wrap`'s dashed midnight marker outranks this: a block can both
+   cross midnight and continue into the next day, and erasing the bottom edge
+   took the marker with it. */
+.tn-block.tn-block-wrap.tn-block-into-next {
+    border-bottom-color: var(--background-modifier-border-hover);
+}
+
+.tn-block.tn-block-into-next {
+    border-bottom-color: transparent;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+/* "Add to the day plan", in the block HEAD beside the counter and the cloud
+   glyph. It used to be a full-width text button on its own row under the body,
+   which in a 30-minute block — about 30px tall, `overflow: hidden` — pushed the
+   block's own content out of view. A glyph in the head costs no height at all;
+   the wording lives in the tooltip and the aria-label. */
+button.tn-block-badge {
+    flex: 0 0 auto;
+    /* HIDDEN by default — this is the declaration the whole reveal depends on,
+       and it was missing. Two rules below were written to reveal the badge on
+       hover and to force it visible on a phone, and both were dead: `display:
+       inline-flex` here meant there was never anything to reveal, so a '+' sat
+       on every unlinked block and a file-plus would now sit on every remote one.
+       `:focus-within` on the block keeps it reachable by keyboard. */
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    /* No border. A 1px box around an 11px glyph is more outline than glyph, and
+       the button already announces itself by appearing on hover. The hover
+       background below is what says "this is pressable". */
+    border: none;
+    border-radius: var(--tn-radius-s);
+    color: var(--text-muted);
+    padding: var(--tn-space-1);
+    line-height: 1;
+    cursor: pointer;
+}
+
+/* `:focus-within` on the host, so tabbing to the button reveals it too. Both
+   hosts are listed: the badge lives in a timed block's head AND in an all-day
+   chip, and a reveal rule that named only one left the other permanently
+   hidden once the base rule gained its `display: none`. */
+.tn-block:hover button.tn-block-badge,
+.tn-block:focus-within button.tn-block-badge,
+.tn-allday-chip:hover button.tn-block-badge,
+.tn-allday-chip:focus-within button.tn-block-badge {
+    display: inline-flex;
+}
+
+.tn-block-badge:hover {
+    color: var(--text-normal);
+    background: var(--background-modifier-hover);
+}
+
+/* ─── Time grid ───────────────────────────────────────────────────────────── */
+.tn-grid {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-height: 0;
+}
+
+.tn-allday-row,
+.tn-header-row {
+    display: flex;
+}
+
+/* The header row sits outside .tn-scroll, so it must reserve the same gutter its
+   scrollbar takes — otherwise every day header drifts left of its column.
+   Measured rather than assumed: overlay scrollbars reserve nothing.
+   The all-day lane needs no such padding — it is a scroller itself and reserves
+   its own identical gutter below, and having both inset its chips twice as far
+   as the headers above them. */
+.tn-header-row {
+    padding-right: var(--tn-sbw, 0px);
+    /* Closes the chrome band when no all-day lane follows — the lane is only
+       mounted when there is something in it (or a move is in flight), so the
+       strong edge has to be able to land on either element. */
+    border-bottom: var(--tn-border-strong);
+    background: var(--background-primary);
+}
+
+/* A lane DOES follow: it takes over the strong edge, and this becomes the light
+   rule between two parts of one band. */
+.tn-header-row:has(+ .tn-allday-row) {
+    border-bottom: var(--tn-border);
+}
+
+.tn-allday-row {
+    /* Sized by CSS while automatic — height: auto under a cap that is a share of
+       the PANE, published as --tn-lane-max. A `vh` cap was a share of the WINDOW,
+       which a split pane could not shrink. Once dragged, the height is set inline,
+       which beats both. Nothing ever measures this element — measuring the element
+       we had just sized is what made the drag a ratchet. */
+    flex: 0 0 auto;
+    min-height: var(--tn-lane-min, 28px);
+    max-height: var(--tn-lane-max, 50vh);
+    overflow-y: auto;
+    /* Constant gutter: its scrollbar used to shift every chip out of line with
+       its column as the lane grew past the cap. */
+    scrollbar-gutter: stable;
+    padding-bottom: var(--tn-space-1);
+    /* THE one strong edge in the pane: the bottom of the chrome band, where the
+       grid begins. */
+    border-bottom: var(--tn-border-strong);
+    background: var(--tn-canvas);
+}
+
+/* Zoom lives in the ruler corner, above the hours it scales. The all-day lane
+   keeps its own corner below, so the two never compete for the same square. */
+.tn-zoom {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--tn-space-1);
+    box-sizing: border-box;
+    padding: 0 var(--tn-space-1);
+}
+
+button.tn-zoom-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    height: var(--tn-control-h);
+    padding: 0;
+    line-height: 1;
+    font-size: var(--tn-font-s);
+    font-weight: 500;
+    background: none;
+    border: none;
+    border-radius: var(--tn-radius-s);
+    color: var(--text-faint);
+    cursor: pointer;
+    transition: color var(--tn-transition), background var(--tn-transition);
+}
+
+.tn-zoom-btn:hover:not(:disabled) {
+    color: var(--text-normal);
+    background: var(--background-modifier-hover);
+}
+
+.tn-zoom-btn:disabled {
+    opacity: var(--tn-disabled);
+    cursor: default;
+}
+
+/* The lane says what it is, in the ruler column where the hours are labelled.
+   A container, so the label form follows the RULER's width rather than the
+   pane's — same reasoning as .tn-day-cell. */
+.tn-allday-label {
+    container-type: inline-size;
+    container-name: tn-allday;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--tn-space-1);
+    padding: var(--tn-space-1) var(--tn-space-2);
+    box-sizing: border-box;
+}
+
+/* No uppercase and no tracking — at 52px "ALL DAY" needed ~55px and was clipped
+   to "ALL …". Sentence case also puts it in the same voice as the hour labels
+   directly below it, which were never shouted. */
+.tn-allday-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--tn-font-s);
+    font-weight: 400;
+    color: var(--text-muted);
+    line-height: 1.2;
+}
+
+/* One label at a time, swapped on the ruler's own width — the ruler narrows to
+   40px in a docked pane and 56px under a finger. */
+.tn-allday-short {
+    display: none;
+}
+
+@container tn-allday (max-width: 46px) {
+    .tn-allday-long {
+        display: none;
     }
 
-    .task-notes-property-inputs {
-        grid-template-columns: 1fr;
-        gap: 8px;
+    .tn-allday-short {
+        display: inline;
+    }
+}
+
+/* The divider between the lane and the grid. Thin at rest, and it grows a
+   visible bar on hover so it reads as a handle rather than a border. */
+.tn-lane-resize {
+    flex: 0 0 auto;
+    height: 7px;
+    margin-top: -4px;
+    margin-bottom: -3px;
+    position: relative;
+    z-index: 2;
+    cursor: ns-resize;
+    touch-action: none;
+}
+
+.tn-lane-resize::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 3px;
+    height: 1px;
+    background: var(--interactive-accent);
+    opacity: 0;
+    transition: opacity var(--tn-transition);
+}
+
+.tn-lane-resize:hover::after,
+.tn-lane-resize.tn-dragging::after {
+    opacity: 1;
+    height: 2px;
+}
+
+button.tn-allday-toggle {
+    width: 100%;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--background-modifier-hover);
+    border: none;
+    border-radius: var(--tn-radius-s);
+    color: var(--text-muted);
+    font-size: var(--tn-font-s);
+    font-weight: 500;
+    cursor: pointer;
+    padding: 1px 0;
+}
+
+.tn-allday-toggle:hover {
+    color: var(--text-normal);
+    background: var(--background-modifier-border);
+}
+
+.tn-ruler-spacer,
+.tn-ruler {
+    width: var(--tn-ruler-width);
+    flex: 0 0 var(--tn-ruler-width);
+}
+
+/* The lane column the pointer is over while dragging a block into it — "drop
+   here and this becomes an all-day item". The lane itself is rendered during a
+   move even when empty, so on a day with no all-day items there is still
+   something to aim at. */
+.tn-allday-col.tn-lane-target {
+    background: var(--background-modifier-hover);
+    box-shadow: inset 0 0 0 var(--tn-ring) var(--interactive-accent);
+    border-radius: var(--tn-radius-s);
+}
+
+.tn-allday-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--tn-canvas);
+    /* Chips within one day are the same thing repeated, so the inside-step; the
+       column border is what separates one day from the next. */
+    gap: var(--tn-space-2);
+    padding: var(--tn-space-2);
+    min-height: 0;
+    /* Same divider as .tn-col, so a chip sits over the day it belongs to — and
+       the SAME TOKEN, which it was not: --tn-border is heavier than the
+       --tn-grid-line the grid uses, so the lane's separators drew a visibly
+       darker seam directly above the columns they line up with. */
+    border-left: 1px solid var(--tn-grid-line);
+}
+
+/* ═══ Event chip — one component, two sizes ══════════════════════════════════
+   The all-day lane and a month cell draw the same EventChip.svelte, which puts a
+   checkbox, a label and a counter inside it and assumes a row. Only the lane's
+   chip was a flex container, so in the month grid the checkbox butted against
+   the title, .tn-chip-label's ellipsis was inert and .tn-block-count's
+   `margin-left: auto` did nothing. Structure, tint and every state are shared
+   here; padding, radius and type size are the only things the two sizes
+   legitimately differ in, and they are the only things stated separately. */
+.tn-allday-chip,
+.tn-cal-chip {
+    display: flex;
+    align-items: center;
+    gap: var(--tn-space-2);
+    min-width: 0;
+    font-weight: 500;
+    /* THE SAME MODEL AS A BLOCK, including the neutral default: pane background,
+       one neutral hairline, and a left edge that is transparent until a state
+       fills it. Only the SHAPE differs — pill, rectangle, card.
+       (This comment has twice described something the rule below did not do. It
+       is worth re-reading both together before changing either.) */
+    --tn-tint: var(--tn-local-color, var(--tn-grid-line));
+    background: var(--background-primary);
+    border: var(--tn-border);
+    border-left: var(--tn-edge) solid var(--tn-tint);
+    color: var(--text-normal);
+    cursor: grab;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    user-select: none;
+    touch-action: none;
+}
+
+/* The lane: pill-shaped, at the lane's own type size. Never squash — flex items
+   shrink by default, so dragging the lane shorter compressed every chip into a
+   sliver instead of showing fewer and scrolling, which is what a shorter lane is
+   asking for. */
+.tn-allday-chip {
+    flex: 0 0 auto;
+    max-width: 100%;
+    font-size: var(--tn-font-s);
+    padding: var(--tn-space-1) var(--tn-space-3);
+    border-radius: var(--tn-radius-pill);
+}
+
+/* A month cell stacks several of these into one ~64px row, so it is the smaller
+   size — and a rectangle, because a pill wastes width it does not have. */
+.tn-cal-chip {
+    font-size: var(--tn-font-s);
+    padding: 1px var(--tn-space-2);
+    border-radius: var(--tn-radius-s);
+}
+
+.tn-allday-chip:active,
+.tn-cal-chip:active,
+.tn-allday-chip.tn-dragging,
+.tn-cal-chip.tn-dragging {
+    cursor: grabbing;
+    opacity: var(--tn-quiet);
+}
+
+.tn-chip-label {
+    /* Grows like .tn-block-title does — without this the label could be shrunk
+       to a sliver while fixed siblings kept their width. */
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* From a calendar: the same left bar a remote BLOCK wears, from the same custom
+   property. The full coloured ring it used to wear is gone — a ring is four
+   coloured edges to say what one says. */
+.tn-allday-chip.tn-remote,
+.tn-cal-chip.tn-remote {
+    --tn-tint: var(--tn-block-color, var(--tn-event-color));
+}
+
+/* Done, everywhere it can appear. One rule, one token — this was written four
+   times with two different opacities, none of them deliberate. */
+.tn-allday-chip.tn-done,
+.tn-cal-chip.tn-done,
+.tn-body-row.tn-row-done {
+    opacity: var(--tn-done-opacity);
+    text-decoration: line-through;
+}
+
+/* Not in the day plan — the same neutral dashed ring a block wears, so one event
+   does not look like two different things in two places. */
+.tn-allday-chip.tn-unlinked,
+.tn-cal-chip.tn-unlinked {
+    --tn-tint: var(--text-warning, var(--color-orange));
+    border-top: 1px dashed var(--text-warning, var(--color-orange));
+    border-right: 1px dashed var(--text-warning, var(--color-orange));
+    border-bottom: 1px dashed var(--text-warning, var(--color-orange));
+}
+
+/* The day cell: its label (click to zoom) and a button that opens its note.
+   A container, so the label form follows the COLUMN's width rather than the
+   pane's — a week column in a sidebar is ~44px however wide the pane is. */
+.tn-day-cell {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--tn-space-1);
+    padding: 0 var(--tn-space-1);
+    /* Stated rather than inherited: `container-type` already makes this a
+       containing block for the today bar via layout containment, but nobody
+       reading the bar's rule would know that. */
+    position: relative;
+    container-type: inline-size;
+    container-name: tn-day;
+}
+
+/* TODAY is marked ONCE, by the accent bar under its column (restored below).
+   A filled pill on the header was tried in v3.10 and reverted the same hour:
+   `.tn-day-header` is `flex: 1 1 auto`, so in Day view the fill becomes an
+   ~800px accent slab — the exact regression tests/styles-hygiene.test.ts has
+   guarded since v2.7. A bar only as wide as the date's own text was the other
+   failed extreme ("too small"). The column-spanning bar is the settled answer;
+   weight is all the header itself needs. */
+.tn-day-cell.tn-today .tn-day-header,
+.tn-day-cell.tn-today .tn-day-header:hover {
+    color: var(--text-normal);
+    font-weight: 600;
+}
+
+/* The bar itself. */
+.tn-day-cell.tn-today::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    /* Over the row's own 1px divider rather than above it, so today reads as one
+       2px accent bar and not as an accent bar stacked on a grey line. */
+    bottom: -1px;
+    height: var(--tn-ring);
+    background: var(--interactive-accent);
+    pointer-events: none;
+}
+
+/* Opens the day's note. Two channels, so the difference survives at 12px:
+   a page WITH LINES at full strength means the note exists, a page with a `+`
+   at half strength means opening it would create it. Creating is a write, so it
+   is never disguised.
+
+   Sized with --tn-control-h, the same height as the zoom buttons at the other
+   end of this very row — so it costs the header no extra height at all, and the
+   two controls in one row finally line up. It was a 16px target. */
+button.tn-day-note {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    height: var(--tn-control-h);
+    min-width: var(--tn-control-h);
+    padding: 0 var(--tn-space-1);
+    border: none;
+    border-radius: var(--tn-radius-s);
+    background: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    transition: color var(--tn-transition), background var(--tn-transition);
+}
+
+/* One channel, not two: the colour alone says whether the note exists. Stacking
+   --text-faint with an opacity made this the faintest thing in the header row. */
+.tn-day-note.tn-has-note {
+    color: var(--text-muted);
+}
+
+.tn-day-note:hover {
+    color: var(--text-normal);
+    background: var(--background-modifier-hover);
+}
+
+/* Says the button opens a menu rather than acting on its own. First thing
+   dropped when the column runs out of width — the button still opens the
+   same menu without it. */
+.tn-day-note-caret {
+    display: inline-flex;
+    align-items: center;
+}
+
+/* One label at a time; the container query below swaps them. */
+.tn-day-short {
+    display: none;
+}
+
+/* The caret goes before the long date does: the date is the information, the
+   caret is only a hint about a control that keeps working without it. */
+@container tn-day (max-width: 110px) {
+    .tn-day-note-caret {
+        display: none;
+    }
+}
+
+@container tn-day (max-width: 86px) {
+    .tn-day-long {
+        display: none;
     }
 
-    .task-notes-inputs-container {
-        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-        gap: 6px;
+    .tn-day-short {
+        display: inline;
+    }
+}
+
+/* Below this there is no room for a note button beside a label at all: the short
+   date needs ~40px and the button is --tn-control-h wide, so they are already
+   touching. Right-clicking (or long-pressing) the cell opens the same menu —
+   that route needs no width at all. */
+@container tn-day (max-width: 72px) {
+    .tn-day-note {
+        display: none;
+    }
+}
+
+/* …but on a phone the button is the only TAP route to that menu, and it is
+   narrower there, so it earns its place in a tighter column. Declared after the
+   rule above so it wins at equal specificity. */
+@media (pointer: coarse) {
+    @container tn-day (min-width: 60px) {
+        .tn-day-note {
+            display: inline-flex;
+        }
+    }
+}
+
+button.tn-day-header {
+    /* Fills the column beside the note button, so the date's target and its
+       centring span the whole day rather than hugging its own text.
+       This was briefly `0 1 auto`, for a reason that no longer exists: back then
+       today's mark was drawn ON this element, so a full-width header meant an
+       ~800px accent slab across the top of Day view. The mark lives on the CELL
+       now (.tn-day-cell.tn-today::after), so the width is free again. */
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+    padding: var(--tn-space-1) var(--tn-space-2);
+    margin: 0 1px;
+    border-radius: var(--tn-radius-s);
+    font-size: var(--tn-font-s);
+    font-weight: 400;
+    /* No uppercase and no tracking: the label is now the daily note's own name
+       (2026-08-11), and both only cost width a date has no room for. */
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.tn-day-header:hover {
+    background: var(--background-modifier-hover);
+}
+
+.tn-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    /* Constant gutter: the columns keep their width whether or not the day
+       scrolls, so --tn-sbw stays valid and nothing shifts on range change. */
+    scrollbar-gutter: stable;
+}
+
+.tn-body {
+    display: flex;
+    position: relative;
+}
+
+.tn-hour {
+    position: relative;
+    height: var(--tn-hour-h, 60px);
+    border-bottom: 1px solid var(--tn-grid-line);
+    box-sizing: border-box;
+}
+
+/* A stronger rule every sixth row. The window can start at any hour, so this is
+   a rhythm rather than a claim about which clock hours it lands on. */
+/* A six-hourly beat, so a long day has something to land on. A much smaller step
+   than it was: it used to jump two levels, to --background-modifier-border-hover,
+   which read as a section break rather than a rhythm. */
+.tn-hour:nth-child(6n) {
+    border-bottom-color: var(--background-modifier-border);
+}
+
+/* Tabular figures: the gutter is a column of numbers, and proportional digits
+   make it jitter as the hours change width. */
+.tn-hour span {
+    position: absolute;
+    top: -7px;
+    right: var(--tn-space-1);
+    font-size: var(--tn-font-s);
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-faint);
+    /* The CANVAS colour, not a card's: this masks the hour line running behind
+       the numeral, so it has to match what it is sitting on. */
+    background: var(--tn-canvas);
+    padding: 0 var(--tn-space-1);
+    line-height: 1;
+}
+
+.tn-columns {
+    flex: 1;
+    display: flex;
+    position: relative;
+    min-width: 0;
+        background: var(--tn-canvas);
+    /* Empty grid background keeps browser panning so the day scrolls on touch. */
+    touch-action: pan-y;
+}
+
+.tn-col {
+    flex: 1;
+    min-width: 0;
+    position: relative;
+    border-left: 1px solid var(--tn-grid-line);
+}
+
+.tn-hline {
+    position: absolute;
+    left: 0;
+    right: 0;
+    border-top: 1px solid var(--tn-grid-line);
+    pointer-events: none;
+}
+
+.tn-block {
+    position: absolute;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--tn-radius-m);
+    /* A NEUTRAL card. Nothing here is coloured, because "this is an ordinary
+       local event" is the default, not information — and it used to cost three
+       colour channels before any state applied: a 4px full-saturation left bar,
+       a 32%-tinted hairline on the other three sides, and a drop shadow. With
+       an accent bar on every block the accent stopped meaning anything, which
+       is what "too much colour" actually was.
+       It reads as an event because of where it sits on a ruled grid; see the
+       channel table below for the three things that may add a colour. */
+    background: var(--background-primary);
+    color: var(--text-normal);
+    overflow: hidden;
+    font-size: var(--tn-font-s);
+    cursor: grab;
+    border: var(--tn-border);
+    /* Reserved, transparent by default. A state fills it by setting --tn-tint;
+       the width never changes, so a bar appearing cannot reflow the text. */
+    border-left: var(--tn-edge) solid var(--tn-tint);
+    user-select: none;
+    z-index: 1;
+    line-height: 1.3;
+    /* NO HUE. The bar is drawn in the block's own outline colour, so the slot
+       and the geometry stay but an ordinary local event costs no colour — which
+       leaves orange (unplanned, overlapping, duplicated), red (now) and a
+       calendar's own colour as the ONLY colours on the grid, against a quiet
+       field. On a day that is mostly routine, that is the difference between
+       "everything is marked" and "the marked things are the ones that matter".
+       (Fully transparent once read as bleak; what fixed that was spacing,
+       brighter labels and the warning colour, and all of those stay.)
+       The GRID's line weight rather than the border's: the resting bar carries no
+       information, so it recedes to the same weight as the hour lines — which
+       hands the states that DO fill it more contrast for nothing.
+       --tn-local-color is the user's opt-in colour for local events (Settings →
+       Timeline); it is only set when chosen, so the fallback IS the default. */
+    --tn-tint: var(--tn-local-color, var(--tn-grid-line));
+    /* Set statically, not toggled mid-gesture: the browser latches touch-action
+       when the touch sequence starts, so a class added on pointerdown is too late. */
+    touch-action: none;
+}
+
+/* Overlapping blocks: the hovered/focused one comes to the front.
+   NO fill. A full hover background was added in v3.10 and taken out again the
+   same day: on a card that already sits lighter than the canvas, lightening it
+   further made the block read as a thick slab under the cursor rather than as a
+   card you happen to be pointing at. Coming to the front is the feedback that
+   matters here — it is what lets you read an overlapped block. */
+.tn-block:hover,
+.tn-block:focus-visible {
+    z-index: 4;
+}
+
+.tn-block:active {
+    cursor: grabbing;
+}
+
+/* ── The channel table ───────────────────────────────────────────────────────
+   Every state owns ONE channel, and a state that has nothing to say paints
+   nothing. Three chromatic meanings exist in the whole grid, and no more:
+
+     calendar colour  → which calendar a remote event came from
+     --tn-now-color   → now
+     --interactive-accent → you (or the app) selected this
+
+   THE LEFT BAR is a single slot, so the states that claim it are ordered by
+   urgency rather than by source order:  now  >  duplicate  >  remote.
+   Everything else uses a different channel entirely:
+
+     left bar   → remote / duplicate / now   (mutually exclusive, by design)
+     outline    → not in the day plan (neutral dashes) or expanded
+     inset ring → the active task (🅰️)
+     opacity    → done
+     geometry   → overlapping — see the note where the stripe used to be
+
+   Before this table, states only ever ADDED marks: one block could show nine
+   at once, and `now`, `dup` and `unlinked` each tried to claim the bar, so its
+   meaning came down to which rule happened to be written last. */
+
+/* "From a calendar I subscribe to". The bar is the only colour it costs; the
+   cloud glyph in the head says the same thing in a second channel for anyone
+   who cannot separate the hues. */
+/* All four bar-claimants are `.tn-block.`-qualified, so they share one
+   specificity (0,2,0) and SOURCE ORDER decides which wins on a block in several
+   states at once — the precedence the table above describes. Qualifying only
+   some of them silently reordered them: `unlinked` alone at (0,2,0) outranked
+   `now`, so an unplanned block happening right now went orange instead of red. */
+.tn-block.tn-block-remote {
+    --tn-tint: var(--tn-block-color, var(--tn-event-color));
+    cursor: default;
+}
+
+/* Not in the day plan yet — the dashed ring says "click the badge to add it".
+   NEUTRAL dashes: this used to also spend --text-accent, which in default
+   Obsidian is the very same hue as --interactive-accent, so it bought no
+   distinction at all. The dash pattern is what carries the meaning. */
+/* NOT IN THE DAY PLAN: dashed on three sides, and the solid bar keeps the left.
+   The dashes say "provisional" the whole way round the block, while the left
+   edge stays the one thing every block uses to say WHAT it is — so the two
+   signals do not fight for the same edge.
+   It briefly wore a dashed LEFT bar too, which put a dashed line immediately
+   beside a dashed border and read as noise; and briefly wore no perimeter at
+   all, which was too quiet to find. This is the middle. */
+.tn-block.tn-block-unlinked {
+    --tn-tint: var(--text-warning, var(--color-orange));
+    border-top: 1px dashed var(--text-warning, var(--color-orange));
+    border-right: 1px dashed var(--text-warning, var(--color-orange));
+    border-bottom: 1px dashed var(--text-warning, var(--color-orange));
+}
+
+/* BOTH unlinked and overlapping. `.tn-block-overlap` is declared ~750 lines
+   above at the same specificity, so the dashed border-right above would erase
+   its 2px edge — the exact collision that made the perimeter worth deleting the
+   first time. Stated once, here, rather than left to source order: the overlap
+   edge is the louder fact and keeps the right side. */
+.tn-block.tn-block-unlinked.tn-block-overlap {
+    border-right: var(--tn-ring) solid var(--text-warning, var(--color-orange));
+}
+
+/* The one control that fixes it is always on screen for these, not hover-only —
+   an unscheduled item you have to hover to act on is half a signal. */
+.tn-block-unlinked button.tn-block-badge,
+.tn-allday-chip.tn-unlinked button.tn-block-badge {
+    display: inline-flex;
+    color: var(--text-warning, var(--color-orange));
+}
+
+.tn-block-done {
+    opacity: var(--tn-done-opacity);
+    text-decoration: line-through;
+}
+
+/* Claimed from two different days, so no one filename can satisfy both. Rare,
+   and genuinely wrong, which is why it is allowed to spend the warning hue. */
+.tn-block.tn-block-dup {
+    --tn-tint: var(--text-warning, var(--color-orange));
+}
+
+/* Happening RIGHT NOW. Declared last of the bar-claimants on purpose: a remote
+   event that is happening now goes red and loses its calendar colour, because
+   "this is the one you are in" beats "this came from Google" for the two
+   minutes it is true. That used to be an accident of source order; it is a
+   decision now.
+
+   No elevation. A 20px drop-shadow glow on a block that may be 20px tall was
+   the single heaviest ornament in the grid, and the needle already crosses this
+   block — the red edge is confirmation, not the primary signal. */
+.tn-block.tn-block-now {
+    --tn-tint: var(--tn-now-color);
+    z-index: 3;
+}
+
+/* Yields. It was `0 0 auto` at ~66px ("07:00–08:00"), while the TITLE was the
+   only shrinkable item — so in a week column (~35px in a docked pane) a block
+   showed a clipped `07:0…` and nothing else: no title, no counter, no badge.
+   The block's position and height already encode the range, and it is repeated
+   in the tooltip and the aria-label, so it is the right thing to give.
+
+   The quietest thing in the head, for the same reason: hierarchy here comes
+   from weight and colour rather than a third type size. Tabular figures so the
+   digits stop shifting under each other as the clock advances. */
+.tn-block-time {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: var(--tn-font-s);
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+}
+
+/* Too short to hold it — see showsTimeLabel in core/row-budget.ts. The title is
+   the one thing in the head that is not repeated elsewhere, so it wins. */
+.tn-block-tight .tn-block-time {
+    display: none;
+}
+
+/* Half- and quarter-hour marks. Only rendered once an hour is tall enough to
+   read them — below that the component emits none at all, so these rules cost
+   nothing at normal zoom. */
+.tn-hour-sub {
+    position: absolute;
+    right: var(--tn-space-1);
+    transform: translateY(-50%);
+    font-size: var(--tn-font-s);
+    font-weight: 400;
+    color: var(--text-faint);
+    background: var(--tn-canvas);
+    padding: 0 var(--tn-space-1);
+    line-height: 1;
+}
+
+/* Half the weight of the hour line it subdivides — it is a subdivision, and
+   should read as one. (These only render at 200px/hour and above.) */
+.tn-hline-sub {
+    border-top-style: dashed;
+    border-top-color: color-mix(in srgb, var(--tn-grid-line) 50%, transparent);
+}
+
+/* ── Block contents: the block's own line, then the lines nested under it ──
+
+   No fill behind the header. The block's own line is bold at full strength and
+   its children are indented and dimmed, exactly like an indented list in a
+   note — which is what the tint was standing in for, badly. */
+.tn-block-head {
+    display: flex;
+    align-items: center;
+    /* space-2 INSIDE a component, space-3 between components. The two used to be
+       interchangeable everywhere, which is why nothing read as grouped. */
+    gap: var(--tn-space-2);
+    min-width: 0;
+    white-space: nowrap;
+    padding: var(--tn-space-1) var(--tn-space-2) var(--tn-space-1) var(--tn-space-3);
+    font-weight: 500;
+}
+
+.tn-block-count {
+    flex: 0 0 auto;
+    margin-left: auto;
+    color: var(--text-muted);
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+}
+
+/* The block's own line carries the weight; its rows do not. */
+.tn-block-has-body .tn-block-head {
+    font-weight: 600;
+}
+
+.tn-block-body {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    padding: 1px var(--tn-space-2) var(--tn-space-1) var(--tn-space-3);
+}
+
+.tn-body-row {
+    display: flex;
+    align-items: center;
+    gap: var(--tn-space-2);
+    min-width: 0;
+    white-space: nowrap;
+    /* Indentation in the note becomes indentation in the block. Depth 1 is one
+       step in, NOT zero: a first-level child sitting at the same x as the line
+       it belongs to is exactly why the header needed a fill to be findable.
+       Capped at a third of the block — depth comes straight from the line tree,
+       and in a 44px week column a depth-4 row was all padding and no text. */
+    padding-left: min(calc(var(--tn-row-depth, 1) * var(--tn-indent)), 33%);
+    color: var(--text-muted);
+}
+
+/* A done block already dims and strikes its whole subtree; repeating it per row
+   compounded to ~0.28 opacity and drew the line twice. */
+.tn-block-done .tn-body-row.tn-row-done {
+    opacity: 1;
+    text-decoration: none;
+}
+
+.tn-row-time {
+    flex: 0 0 auto;
+    opacity: var(--tn-quiet);
+    font-variant-numeric: tabular-nums;
+}
+
+.tn-row-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tn-block-more {
+    opacity: var(--tn-quiet);
+}
+
+/* "This came from a subscribed calendar." A glyph as well as the coloured left
+   bar, deliberately: the bar is shared by three states (remote, duplicate, now)
+   and hue alone must not be the only thing telling them apart. */
+.tn-remote-mark {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    opacity: var(--tn-quiet);
+}
+
+/* Checkbox inside a block or chip.
+
+   We draw NOTHING here. Obsidian styles task checkboxes from `input[type=checkbox]`
+   in app.css (specificity 0,1,1) and themes hook that through `data-task`, so a
+   `.tn-check` (0,1,0) rule set loses every property that conflicts and leaves
+   only its leftovers painted on top of Obsidian's — which is what turned the tick
+   into a rotated fragment. These four declarations only place the box in the flex
+   row; `input[type='checkbox']` is needed to out-specify app.css's own margin. */
+input[type='checkbox'].tn-check {
+    flex: 0 0 auto;
+    /* The row's own gap does the spacing; app.css adds margin-inline-end: 6px. */
+    margin: 0;
+    cursor: pointer;
+}
+
+/* A remote block holds a control now, so it must answer the pointer. */
+/* (The remote-only hover that used to live here is now the rule every block
+   shares, above.) */
+
+/* Expanded: opens over its neighbours, but never moves from its start time. */
+.tn-block-expanded {
+    height: auto !important;
+    /* Never shorter than the time it occupies — expanding must not make a block
+       stop matching its own duration — but never taller than the pane either.
+       min-height used to win outright, so at a deep zoom an expanded block grew
+       past the viewport with no way to scroll it back. */
+    /* Resolved HERE, inside `.tn-grid`, which is where --tn-pane-h actually
+       exists. Same arithmetic as before; it just runs where its inputs are. */
+    min-height: min(
+        var(--tn-block-h, 0px),
+        min(calc(var(--tn-pane-h, 100vh) * var(--tn-expanded-share)), var(--tn-expanded-cap))
+    );
+    max-height: min(
+        calc(var(--tn-pane-h, 100vh) * var(--tn-expanded-share)),
+        var(--tn-expanded-cap)
+    );
+    overflow-y: auto;
+    left: 0 !important;
+    width: 100% !important;
+    z-index: 10;
+    /* Outline for the edge, box-shadow for the lift. They are separate channels
+       on purpose: an expanded block covers its neighbours and has earned the
+       elevation, and keeping the edge in `outline` leaves box-shadow free for
+       it. (This pairing once collided with an inset ring the block could also
+       carry; that state is gone, but the separation is still the right shape.) */
+    outline: 1px solid var(--background-modifier-border-hover);
+    outline-offset: -1px;
+    box-shadow: var(--tn-shadow-lift);
+}
+
+.tn-block-title {
+    /* Without this a nowrap flex item cannot shrink, so it overflowed the head
+       and was hard-clipped by the block instead of ellipsising. */
+    min-width: 0;
+    flex: 1 1 auto;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tn-resize {
+    position: absolute;
+    /* Inset from the left so it cannot cover the last body row's checkbox. */
+    left: 40%;
+    right: 0;
+    bottom: 0;
+    height: 7px;
+    cursor: ns-resize;
+}
+
+.tn-ghost {
+    position: absolute;
+    left: 2%;
+    width: 96%;
+    box-sizing: border-box;
+    background: var(--background-modifier-hover);
+    border: 1px dashed var(--interactive-accent);
+    /* The same radius as the block it previews — it was 4px against the block's
+       8px, so the ghost never quite looked like the thing it was standing in for. */
+    border-radius: var(--tn-radius-m);
+    font-size: var(--tn-font-s);
+    color: var(--text-normal);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 5;
+}
+
+.tn-needle {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--tn-now-color);
+    z-index: 6;
+    pointer-events: none;
+}
+
+.tn-needle::before {
+    content: '';
+    position: absolute;
+    left: -3px;
+    top: -3px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--tn-now-color);
+}
+
+/* ═══ Calendar grid — ONE implementation, three densities ═══════════════════
+   `chips` (timeline month), `dots` (sidebar + embedded rail), `dot` (overviews).
+   This replaced three near-identical grids and their three CSS blocks. */
+
+.tn-month {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-height: 0;
+}
+
+.tn-cal-grid-wrap {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1;
+}
+
+.tn-cal-weekdays,
+.tn-cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+}
+
+.tn-cal-wd {
+    text-align: center;
+    font-size: var(--tn-font-s);
+    font-weight: 600;
+    color: var(--text-muted);
+    padding: var(--tn-space-2) 0;
+}
+
+.tn-cal-grid {
+    flex: 1;
+    min-height: 0;
+    touch-action: pan-y;
+}
+
+.tn-cal-cell {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+}
+
+.tn-cal-cell.tn-outside {
+    color: var(--text-faint);
+}
+
+.tn-cal-cell.tn-today .tn-cal-daynum {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    font-weight: 600;
+}
+
+.tn-cal-cell.tn-today .tn-cal-daynum:hover {
+    background: var(--interactive-accent-hover, var(--interactive-accent));
+}
+
+/* The plugin's focus colour, like every other focus ring in the file — a
+   full-strength accent perimeter around a 64px cell was the last full-strength
+   frame left. */
+.tn-cal-cell.tn-focused {
+    outline: var(--tn-ring) solid var(--background-modifier-border-focus, var(--interactive-accent));
+    outline-offset: calc(-1 * var(--tn-ring));
+    border-radius: var(--tn-radius-s);
+}
+
+button.tn-cal-daynum {
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    padding: 1px var(--tn-space-2);
+    border-radius: var(--tn-radius-s);
+    font-size: var(--tn-font-s);
+}
+
+.tn-cal-daynum:hover {
+    background: var(--background-modifier-hover);
+}
+
+/* ── chips: the timeline's month range ── */
+.tn-cal-v-chips .tn-cal-grid {
+    grid-auto-rows: minmax(var(--tn-cell-min-height), 1fr);
+    /* Six tall rows don't fit a short pane — scroll rather than clip. The stable
+       gutter keeps the columns aligned with the weekday row above. */
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+}
+
+.tn-cal-v-chips .tn-cal-weekdays {
+    scrollbar-gutter: stable;
+}
+
+/* The month's chip cells are the same idea as the timed grid: a canvas with
+   cards on it. */
+.tn-cal-v-chips .tn-cal-cell {
+    background: var(--tn-canvas);
+    border: var(--tn-border);
+    padding: var(--tn-space-1);
+    gap: var(--tn-space-1);
+}
+
+/* A day from the neighbouring month. It used to be marked by taking the
+   secondary surface — which is now the canvas EVERY cell wears, so the mark
+   vanished. Recessed by dimming instead, matching how an outside cell's chips
+   and its numeral are already handled. */
+.tn-cal-v-chips .tn-cal-cell.tn-outside {
+    opacity: var(--tn-quiet);
+}
+
+.tn-cal-v-chips .tn-cal-daynum {
+    align-self: flex-start;
+}
+
+/* Shrinks, so the "+N more" below it always keeps its row. The counter used to
+   sit INSIDE this list as its last child, which meant the one thing explaining
+   the truncation was the first thing truncated. */
+.tn-cal-chip-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--tn-space-1);
+    overflow: hidden;
+}
+
+.tn-cal-cell.tn-outside .tn-cal-chip {
+    opacity: var(--tn-quiet);
+}
+
+/* One dimming step only, so an out-of-month completed chip stays legible. */
+.tn-cal-cell.tn-outside .tn-cal-chip.tn-done {
+    opacity: var(--tn-done-opacity);
+}
+
+/* A control, not a caption. With no border, no background and --text-muted it
+   read as a label until you hovered it — and hover is not a thing on a phone. */
+button.tn-cal-more {
+    flex: 0 0 auto;
+    font-size: var(--tn-font-s);
+    font-weight: 600;
+    color: var(--text-muted);
+    background: var(--background-modifier-hover);
+    border: none;
+    border-radius: var(--tn-radius-s);
+    text-align: left;
+    padding: 0 var(--tn-space-2);
+    cursor: pointer;
+    transition: color var(--tn-transition), background var(--tn-transition);
+}
+
+.tn-cal-more:hover {
+    color: var(--text-normal);
+}
+
+/* ── dots: sidebar + embedded rail ──
+   These variants size to their CONTENT. Without a fixed row height the grid
+   inherits the pane's height and stretches six implicit rows over it, which is
+   what made the little month calendar sprawl down the whole sidebar. */
+.tn-cal-v-dots,
+.tn-cal-v-dot {
+    flex: 0 0 auto;
+}
+
+.tn-cal-v-dots .tn-cal-grid,
+.tn-cal-v-dot .tn-cal-grid {
+    flex: 0 0 auto;
+    grid-auto-rows: 26px;
+    align-content: start;
+}
+
+.tn-cal-v-dots .tn-cal-cell,
+.tn-cal-v-dot .tn-cal-cell {
+    align-items: center;
+    justify-content: center;
+    gap: var(--tn-space-1);
+    border-radius: var(--tn-radius-m);
+}
+
+/* Hover fills AND rings. `inset box-shadow`, never a border: a border would
+   re-lay-out the 26px rows and bring back the sprawl this grid regressed into. */
+/* One signal, not two: the fill alone says "you are pointing at this day". The
+   inset ring stacked on top of it is the doubling this file has been removing
+   everywhere else, and on a small cell it read as a thick box. */
+.tn-cal-v-dots .tn-cal-cell:hover,
+.tn-cal-v-dot .tn-cal-cell:hover {
+    background: var(--background-modifier-hover);
+}
+
+/* Colour only. Bolding the numeral on hover RE-LAYS-OUT it inside a fixed 26px
+   row — the number visibly shifts under the pointer, which is a large part of
+   what "when I hover, things look thick" was. `tabular-nums` keeps digits an
+   equal width within one weight, not across two. */
+
+.tn-cal-v-dots .tn-cal-cell:hover .tn-cal-num,
+.tn-cal-v-dot .tn-cal-cell:hover .tn-cal-num {
+    color: var(--text-normal);
+}
+
+/* At rest the numbers are live text, not grey furniture. */
+/* Today's numeral sits on an accent fill, so it keeps the on-accent colour that
+   fill was chosen for — the muted rule below is for every OTHER day. */
+.tn-cal-cell.tn-today .tn-cal-daynum .tn-cal-num {
+    color: var(--text-on-accent);
+}
+
+.tn-cal-v-dot .tn-cal-num {
+    color: var(--text-muted);
+}
+
+.tn-cal-v-dot .tn-cal-cell.tn-outside .tn-cal-num {
+    color: var(--text-faint);
+}
+
+/* The whole cell hovers, so the whole cell must be clickable — otherwise a
+   click on the padding or the dot row looks live but does nothing. */
+.tn-cal-v-dots .tn-cal-daynum,
+.tn-cal-v-dot .tn-cal-daynum {
+    flex: 1;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--tn-space-1);
+}
+
+.tn-cal-dots-row {
+    display: flex;
+    gap: 2px;
+    height: 5px;
+    align-items: center;
+}
+
+.tn-cal-dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+}
+
+/* Remote days read as squares in their own calendar's colour — shape carries
+   the distinction, so it survives a theme whose accent matches a calendar. */
+.tn-cal-dot.tn-dot-remote {
+    background: var(--tn-dot-color, var(--tn-event-color));
+    border-radius: 1px;
+}
+
+/* Three visually distinct sources, matching the three settings toggles. */
+/* Local events' dot follows the same opt-in colour their bars do. */
+.tn-cal-dot.tn-dot-event {
+    background: var(--tn-local-color, var(--interactive-accent));
+}
+
+.tn-cal-dot.tn-dot-task {
+    background: transparent;
+    border: 1px solid var(--text-muted);
+}
+
+.tn-cal-dot.tn-dot-word {
+    background: var(--text-faint);
+}
+
+/* ── dot: the 6-month / year overview, scaled by how busy the day is ── */
+.tn-cal-v-dot .tn-cal-cell {
+    font-size: var(--tn-font-s);
+}
+
+.tn-cal-dot.tn-dot-density {
+    position: absolute;
+    bottom: 2px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--interactive-accent);
+    /* Density is a COUNT — show it instead of throwing it away on a boolean. */
+    width: calc(3px + var(--tn-dot-n, 1) * 1px);
+    height: calc(3px + var(--tn-dot-n, 1) * 1px);
+    opacity: calc(0.4 + var(--tn-dot-n, 1) * 0.15);
+}
+
+/* ── Mini months (6-month / year) ── */
+.tn-minimonths {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--tn-space-4);
+    padding: var(--tn-space-4);
+    width: 100%;
+    overflow-y: auto;
+    align-content: start;
+}
+
+.tn-minimonths.tn-year {
+    grid-template-columns: repeat(4, 1fr);
+}
+
+/* Uniform padding on every tile, so the current-month wash below has room to
+   sit behind one without shifting it relative to the other eleven. */
+.tn-mini {
+    padding: var(--tn-space-2);
+}
+
+/* A boundary at REST is what says "this is a control" — hover alone is a hint
+   you only get after you already suspected it. */
+button.tn-mini-title {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: var(--tn-space-1) var(--tn-space-2);
+    border: var(--tn-border);
+    border-radius: var(--tn-radius-s);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: var(--tn-font-s);
+    font-weight: 600;
+    cursor: pointer;
+    transition: background var(--tn-transition), border-color var(--tn-transition);
+}
+
+.tn-mini-title:hover {
+    background: var(--background-modifier-hover);
+    border-color: var(--background-modifier-border-hover);
+}
+
+/* The month containing today, so twelve identical tiles have an anchor.
+   An accent UNDERLINE, not an accent fill. `button.tn-mini-title` is width:100%,
+   so filling it painted a full-width accent slab — in the 6-month view about a
+   third of the pane — to say something the accent-filled day number 20px below
+   it already says. This is the same vocabulary today uses in the day header
+   (a 2px accent rule under the thing), so the views agree without shouting.
+   The weight is dropped because the base rule already sets 600. */
+.tn-mini-title.tn-current {
+    border-color: var(--interactive-accent);
+    border-bottom-width: var(--tn-ring);
+}
+
+/* The tile itself carries nothing: its title already says which one it is. */
+.tn-mini-current {
+    border-radius: var(--tn-radius-m);
+}
+
+/* ── Embedded calendar rail (a navigator beside the time grid) ── */
+/* Chrome, like the toolbar it hangs below. */
+.tn-rail {
+    flex: 0 0 var(--tn-rail-width);
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    padding: var(--tn-space-2);
+    border-right: var(--tn-border);
+    background: var(--background-primary);
+    overflow-y: auto;
+}
+
+.tn-rail-header {
+    display: flex;
+    align-items: center;
+    gap: var(--tn-space-1);
+    margin-bottom: var(--tn-space-2);
+}
+
+button.tn-rail-title {
+    flex: 1;
+    text-align: center;
+    font-size: var(--tn-font-s);
+    font-weight: 600;
+    background: none;
+    border: none;
+    color: var(--text-normal);
+    cursor: pointer;
+}
+
+/* ═══ Rendered Markdown inside a block ═══════════════════════════════════════
+   These elements carry Obsidian's own `markdown-rendered` class, which is what
+   makes a highlight visible at all: app.css styles `b`/`strong` and `i`/`em` as
+   BARE elements, but scopes `mark` to `.markdown-rendered mark`. Without the
+   class, bold worked and `==highlight==` was silently unstyleable.
+
+   The cost of that class is that Obsidian now also applies its BLOCK styling —
+   `<p>`, `<ul>`, `<h1>` margins and sizes — inside what is a single line in a
+   flex row. Everything below flattens that back. These rules are load-bearing,
+   not cosmetic: without them one bold word doubles a block's height. */
+.tn-block-title > *,
+.tn-row-title > *,
+.tn-chip-label > * {
+    display: inline;
+    margin: 0;
+    padding: 0;
+    font-size: inherit;
+    font-weight: inherit;
+    line-height: inherit;
+}
+
+/* A list inside a one-line block is still a list; drop only the indentation the
+   grid has no room for. */
+.tn-block-title :is(ul, ol),
+.tn-row-title :is(ul, ol),
+.tn-chip-label :is(ul, ol) {
+    list-style: none;
+}
+
+/* The renderer's own wrappers, which otherwise introduce their own box. */
+.tn-block-title p,
+.tn-row-title p,
+.tn-chip-label p {
+    display: inline;
+}
+
+/* A heading written into a planner line must not shout at grid size. */
+.tn-block-title :is(h1, h2, h3, h4, h5, h6),
+.tn-row-title :is(h1, h2, h3, h4, h5, h6),
+.tn-chip-label :is(h1, h2, h3, h4, h5, h6) {
+    font-size: inherit;
+    font-weight: inherit;
+}
+
+/* Obsidian gives an internal link its own colour; inside a tinted block that
+   fights the block's own colour, so links inherit here and stay underlined. */
+.tn-block-title a,
+.tn-row-title a,
+.tn-chip-label a {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+/* An image or embed in a planner line would blow the row height apart. */
+.tn-block-title :is(img, svg, iframe, .internal-embed),
+.tn-row-title :is(img, svg, iframe, .internal-embed),
+.tn-chip-label :is(img, svg, iframe, .internal-embed) {
+    display: none;
+}
+
+/* ═══ Focus states for every interactive control ═════════════════════════════ */
+/* Declared last so a state class (e.g. .tn-active's inset shadow) can never
+   suppress the focus indicator. */
+.tn-btn:focus-visible,
+.tn-range:focus-visible,
+.tn-day-header:focus-visible,
+.tn-allday-chip:focus-visible,
+.tn-cal-daynum:focus-visible,
+.tn-cal-more:focus-visible,
+.tn-cal-chip:focus-visible,
+.tn-block:focus-visible,
+.tn-block-badge:focus-visible,
+.tn-mini-title:focus-visible,
+.tn-rail-title:focus-visible,
+.tn-zoom-btn:focus-visible,
+.tn-day-note:focus-visible,
+.tn-allday-toggle:focus-visible,
+.tn-chip-warn:focus-visible {
+    outline: var(--tn-ring) solid var(--background-modifier-border-focus, var(--interactive-accent));
+    outline-offset: 1px;
+}
+
+/* ═══ Responsive ═════════════════════════════════════════════════════════════ */
+
+@container tn-shell (max-width: 560px) {
+    .tn-toolbar {
+        gap: var(--tn-space-2);
     }
 
-    .task-notes-apply-btn {
+    /* The calendar stacks ABOVE the grid instead of squeezing it. This lived in
+       the tn-body query, which cannot match its own container, so it never
+       applied and the rail simply refused to shrink. */
+    .tn-body-wrap {
+        flex-direction: column;
+    }
+
+    .tn-rail {
+        flex: 0 0 auto;
         width: 100%;
-        justify-content: center;
+        max-height: 40%;
+        border-right: none;
+        border-bottom: var(--tn-border-strong);
+    }
+
+    /* Title first on its own line, then nav and ranges beneath it. */
+    .tn-toolbar .tn-title {
+        order: -1;
+        width: 100%;
+    }
+
+    /* The GROUP, not the scroller: the `›` button moved out of .tn-ranges, and
+       ordering only half of the pair sent the chevron to the wrong row. */
+    .tn-toolbar .tn-range-group {
+        order: 3;
     }
 }
 
-/* ─── Mobile layout (≤ 600 px) ────────────────────────────────────────────────── */
+/* Pane-width driven (container queries) — correct inside narrow sidebars. */
+@container tn-body (max-width: 700px) {
+    .tn-minimonths.tn-year {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+/* NOTE: these must target DESCENDANTS of .tn-body-wrap (the container itself and
+   its ancestors are not matched by @container), hence .tn-grid / .tn-month.
+   The rail's own narrow-pane rule lives in the `tn-shell` query further down —
+   the copy that used to sit here could not stack it (the flex direction it
+   needed belongs to the container it cannot match) and only weakened the
+   working rule's border. */
+@container tn-body (max-width: 480px) {
+    .tn-minimonths,
+    .tn-minimonths.tn-year {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .tn-grid {
+        --tn-ruler-width: 40px;
+    }
+    .tn-month {
+        --tn-cell-min-height: 48px;
+    }
+    .tn-minimonths {
+        gap: var(--tn-space-3);
+        padding: var(--tn-space-3);
+    }
+}
+
+@container tn-body (max-width: 320px) {
+    .tn-minimonths,
+    .tn-minimonths.tn-year {
+        grid-template-columns: 1fr;
+    }
+    /* 40px is the floor: `07:00` needs ~37px, and below that the ruler clipped
+       its own labels against the scroller. */
+    .tn-grid {
+        --tn-ruler-width: 40px;
+    }
+    .tn-month {
+        --tn-cell-min-height: 40px;
+    }
+}
+
+/* Bigger drag targets where the pointer is a finger. */
+@media (pointer: coarse) {
+    /* A finger needs a bigger ruler, and the two things you drag need to be
+       findable without one. Placed after the container queries so fingers win
+       over narrowness — same specificity, source order decides. */
+    .tn-grid {
+        --tn-ruler-width: 56px;
+    }
+
+    .tn-lane-resize {
+        height: 16px;
+        margin-top: -8px;
+        margin-bottom: -7px;
+    }
+
+    /* Every control at once — the zoom buttons, the range pills, the view
+       buttons, the "Create as" row in the drag dialog and the Type row in the
+       properties panel all read their height from these two tokens.
+       EVERY ROOT, not just the timeline: the tokens are declared per-root, so
+       raising them on .tn-timeline alone left every control inside a modal and
+       inside the properties sidebar at their 26px desktop size on a phone —
+       including the type pickers, which are the newest things to tap. */
+    .tn-timeline,
+    .task-modal,
+    .task-notes-properties-view,
+    .task-notes-suggest {
+        --tn-control-h: 36px;
+        --tn-field-h: 36px;
+    }
+
+    /* Nothing reveals a hover-only control on a phone. */
+    button.tn-block-badge {
+        display: inline-flex;
+    }
+
+    /* Not a toolbar control — a chevron inside the lane label. It only needs to
+       be reachable by a finger. (.tn-day-note used to be listed here too; it
+       reads --tn-control-h now, which the block above already raises.) */
+    .tn-allday-toggle {
+        min-height: 32px;
+    }
+
+    /* Capped as a SHARE of the block, not a flat height. At the default
+       60px/hour a 15-minute block is 15px tall, so a flat 16px handle covered
+       the whole thing over 60% of its width — it could only ever be resized,
+       never moved. */
+    .tn-resize {
+        height: min(16px, 40%);
+    }
+
+    /* Small controls grow their TARGET. An absolutely positioned ::after was the
+       obvious way and was wrong for three of these four: `.tn-cal-chip`,
+       `.tn-block-badge` and `.tn-cal-more` each sit inside an ancestor with
+       `overflow: hidden` (.tn-cal-chip itself, .tn-block, .tn-cal-cell), which
+       clips a negative inset away entirely — so those targets never existed.
+       Padding grows the element's own box and cannot be clipped. */
+    /* `button.` qualified: the base rules are `button.tn-block-badge` and
+       `button.tn-cal-more` (0,1,1), which out-specify a bare class (0,1,0), so
+       two of these three touch targets were never actually grown. */
+    button.tn-cal-more,
+    button.tn-block-badge,
+    .tn-cal-chip {
+        padding-block: var(--tn-space-2);
+    }
+
+    /* This one lives in the toolbar with no clipping ancestor, so the pseudo
+       works and costs no layout. */
+    .tn-chip-warn {
+        position: relative;
+    }
+
+    .tn-chip-warn::after {
+        content: '';
+        position: absolute;
+        inset: -6px;
+    }
+
+    /* A thumb must be able to scroll the day. These were `touch-action: none`
+       so a drag could start instantly — but blocks and chips cover most of a
+       busy day, so the primary scroll gesture failed exactly where a thumb
+       naturally lands. `pan-y` gives vertical scrolling back; the drag still
+       starts, it just yields to a scroll the browser recognises first. */
+    .tn-block,
+    .tn-allday-chip,
+    .tn-cal-chip {
+        touch-action: pan-y;
+    }
+
+    /* Hover is not reachable on a phone, and these four carried their ONLY
+       affordance in it. */
+    .tn-lane-resize::after {
+        opacity: 1;
+    }
+
+    .tn-block:active {
+        z-index: 4;
+    }
+
+    /* Full height for the thumb, but narrower than it is tall: on a phone this
+       button is the only TAP route to the day menu, so it has to survive a
+       week column. The taller target does the work; the extra width did not. */
+    .tn-day-note {
+        min-width: 28px;
+        padding: 0;
+    }
+    /* The grid's tracks are fixed at 26px, so a min-height here overflowed into
+       the row below. Grow the TRACK instead. */
+    .tn-cal-v-dots .tn-cal-grid,
+    .tn-cal-v-dot .tn-cal-grid {
+        grid-auto-rows: 32px;
+    }
+}
+
+/* …the MODAL genuinely is window-sized, so it keeps @media. */
 @media (max-width: 600px) {
-    .task-notes-footer {
-        padding: 8px 10px;
-        bottom: 0;
+    /* The type picker and its fields, on a phone. `.tn-choice` already wraps;
+       what it lacked was room to wrap INTO — each button was sized for a mouse.
+       (The coarse-pointer block above raises --tn-control-h for every root now,
+       which is what actually makes these tappable; this keeps the row from
+       running off the edge once they are bigger.) */
+    .tn-choice {
+        gap: var(--tn-space-2);
     }
 
-    .task-notes-property-inputs {
-        grid-template-columns: 1fr;
-        gap: 6px;
-    }
-
-    .task-notes-inputs-container {
-        grid-template-columns: 1fr;
-        gap: 5px;
-        width: 100%;
-    }
-
-    .task-notes-input-group {
-        width: 100%;
-        gap: 3px;
-    }
-
-    .task-notes-label {
-        font-size: 0.65rem;
-    }
-
-    .task-notes-text-input,
-    .task-notes-date-input,
-    .task-notes-time-input {
-        width: 100%;
-        padding: 4px 8px;
-        font-size: 0.75rem;
-        height: 28px;
-    }
-
-    .task-notes-apply-btn {
-        width: 100%;
-        padding: 0 10px;
-        font-size: 0.75rem;
-        height: 28px;
-        justify-content: center;
-    }
-
-    .task-modal-form {
-        gap: 10px;
+    .tn-choice-btn {
+        flex: 1 1 auto;
+        min-width: 44px;
     }
 
     .task-modal-button-group {
         flex-direction: column-reverse;
     }
-
     .task-modal-cancel-btn,
     .task-modal-submit-btn {
         width: 100%;
         text-align: center;
         padding: 10px;
     }
+}
+
+/* Every rule that declares a `transition` needs an opt-out here — four of ten had
+   one. tests/styles-hygiene.test.ts now derives this list from the file itself, so
+   a new transition without an entry fails rather than shipping. */
+@media (prefers-reduced-motion: reduce) {
+    button.tn-btn,
+    button.tn-range,
+    .tn-input,
+    button.tn-zoom-btn,
+    button.tn-day-note,
+    button.tn-mini-title,
+    .tn-lane-resize::after,
+    button.tn-cal-more,
+    .tn-range-more .tn-icon,
+    .task-notes-apply-btn,
+    button.task-modal-cancel-btn,
+    .task-modal-submit-btn,
+    .tn-input-date::-webkit-calendar-picker-indicator,
+    .tn-input-time::-webkit-calendar-picker-indicator {
+        transition: none;
+    }
+    .task-notes-apply-btn:hover {
+        transform: none;
+    }
+}
+
+/* ── Reminders ───────────────────────────────────────────────────────────────
+   A reminder drawn like a block: a coloured left edge, then the time quietly
+   above what it is about. Same hue budget as the grid — red when it is starting
+   NOW, the calendar's own colour for a subscribed event, the softened accent
+   otherwise — so a reminder and the block it came from read as one thing. */
+.task-notes-notice {
+    display: flex;
+    flex-direction: column;
+    gap: var(--tn-space-1);
+    border-left: var(--tn-edge) solid var(--tn-tint);
+    padding-left: var(--tn-space-3);
+    /* Same neutral default as a block, for the same reason. */
+    --tn-tint: var(--tn-grid-line);
+}
+
+/* The things that genuinely need attention: the checkbox guard, a calendar that
+   stopped syncing. Same shape as a reminder, warning-coloured edge. */
+.task-notes-notice-warn {
+    --tn-tint: var(--text-warning, var(--color-orange));
+}
+
+.task-notes-notice-remote {
+    --tn-tint: var(--tn-block-color, var(--tn-event-color));
+}
+
+/* Declared last, so "starting now" outranks the calendar colour — exactly as it
+   does on a block. */
+.task-notes-notice-now {
+    --tn-tint: var(--tn-now-color);
+}
+
+/* THE MESSAGE. The one line worth reading, so it gets the larger step and the
+   full-strength text colour — this was the muted, small line, which put the
+   sentence explaining a refusal below the filename it was about. */
+.task-notes-notice-message {
+    color: var(--text-normal);
+    font-size: var(--tn-font-m);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    /* A notice is narrow and lives for ten seconds — it cannot be hovered for
+       the rest, so nothing here may be truncated. */
+    overflow-wrap: anywhere;
+}
+
+/* WHICH NOTE it is about — supporting information, at the supporting size. */
+.task-notes-notice-note {
+    color: var(--text-muted);
+    font-size: var(--tn-font-s);
+    overflow-wrap: anywhere;
+}
+
+/* A reminder you can click to open the thing it is about. */
+.task-notes-notice-clickable {
+    cursor: pointer;
+}
+
+.task-notes-notice-clickable:hover .task-notes-notice-message {
+    text-decoration: underline;
+}
+
+/* ═══ "Schedule today's events" ══════════════════════════════════════════════ */
+.tn-modal-hint {
+    color: var(--text-muted);
+    font-size: var(--tn-font-s);
+    margin-top: 0;
+}
+
+.tn-schedule-list {
+    max-height: 50vh;
+    overflow-y: auto;
 }
