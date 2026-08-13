@@ -166,13 +166,22 @@ describe("a spec's template key is a setting the tab actually renders", () => {
 	// section never gets a row — the feature just quietly does not exist.
 	const withTemplates = EMOJI_REGISTRY.filter((spec) => spec.templateSettingKey);
 
-	it('covers the statuses that can carry one', () => {
-		expect(withTemplates.map((spec) => spec.key)).toEqual([
-			'unchecked',
-			'scheduled',
-			'routine',
-			'checked',
-		]);
+	// `checked` was removed from this list in v4.4. Its picker could never fire:
+	// every route that applies a template guards on `isDoneRole`, deliberately —
+	// a completed template holding unchecked boxes trips `reopenCompletedOnUnchecked`
+	// and renames the note straight back to ◻️. The row invited people to configure
+	// something with no effect, so the registry entry no longer declares a key.
+	//
+	// `unimportant` (❌) never had one, for the same reason.
+	it('covers the statuses that can carry one — the OPEN and SCHEDULED roles', () => {
+		expect(withTemplates.map((spec) => spec.key)).toEqual(['unchecked', 'scheduled', 'routine']);
+	});
+
+	it('and no done or dropped role declares one, since none could apply it', () => {
+		const doneWithTemplate = EMOJI_REGISTRY.filter(
+			(spec) => (spec.role === 'done' || spec.role === 'dropped') && spec.templateSettingKey,
+		);
+		expect(doneWithTemplate.map((s) => s.key)).toEqual([]);
 	});
 
 	for (const spec of withTemplates) {

@@ -133,9 +133,18 @@ export function expandIcs(text: string, cal: ExpandTarget, color: string, now: n
 			}
 		}
 
+		// An event OVERLAPS the window; it does not have to start inside it. Testing
+		// the start alone silently dropped anything already running when the window
+		// opens — parental leave, a sabbatical, a term, a long booking — so the day
+		// you are living inside it was the day it was least visible.
+		const durationMs = event.endDate
+			? event.endDate.toJSDate().getTime() - event.startDate.toJSDate().getTime()
+			: 0;
+
 		if (!event.isRecurring()) {
 			const startTs = event.startDate.toJSDate().getTime();
-			if (startTs >= windowStart && startTs <= windowEnd) {
+			const endTs = startTs + durationMs;
+			if (endTs >= windowStart && startTs <= windowEnd) {
 				push(event, event.startDate, event.endDate);
 			}
 			continue;
@@ -152,8 +161,10 @@ export function expandIcs(text: string, cal: ExpandTarget, color: string, now: n
 			const startTs = next.toJSDate().getTime();
 			if (startTs > windowEnd) break;
 			// Pre-window occurrences get their OWN large budget: a daily series started
-			// years ago must not exhaust the in-window budget and vanish.
-			if (startTs < windowStart) {
+			// years ago must not exhaust the in-window budget and vanish. An
+			// occurrence that STARTED before the window but is still running is not a
+			// pre-window occurrence — same overlap rule as above.
+			if (startTs + durationMs < windowStart) {
 				skipped++;
 				continue;
 			}

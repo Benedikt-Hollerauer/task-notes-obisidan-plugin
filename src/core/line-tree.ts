@@ -88,6 +88,47 @@ function leadingWidth(raw: string): number {
 const FENCE_RE = /^[ \t]*(```|~~~)/;
 
 /**
+ * Line numbers that live inside a fenced code block, plus the fence lines.
+ *
+ * `buildLineTree` has always skipped fenced content — a `- 09:00 deploy` inside a
+ * ``` block is an EXAMPLE of a planner line, not one. But the scanners in
+ * planner-section.ts walked the raw array with no fence state, so the same text
+ * became a real, draggable, WRITABLE block: dragging it rewrote a line inside the
+ * user's code block, and a `## Day planner` written inside a fence was matched as
+ * the real heading.
+ *
+ * Extracted here rather than duplicated so the two walkers can never disagree
+ * about what a fence is again.
+ */
+export function fencedLines(lines: string[]): Set<number> {
+	const fenced = new Set<number>();
+	let inFence = false;
+	for (let i = frontmatterEnd(lines); i < lines.length; i++) {
+		if (FENCE_RE.test(lines[i] ?? '')) {
+			fenced.add(i);
+			inFence = !inFence;
+			continue;
+		}
+		if (inFence) fenced.add(i);
+	}
+	return fenced;
+}
+
+/**
+ * The lines nested UNDER `lineNo` — the block's body, without its own row.
+ *
+ * Returns null when no node starts there. Exists because three call sites sliced
+ * `subtreeEndLine` by hand, and one of them compared the result against a slice
+ * taken from a *different* revision of the file. See `moveLineAcrossDays`.
+ */
+export function blockBodyAt(content: string, lineNo: number): string[] | null {
+	const tree = buildLineTree(content);
+	const node = tree.nodes[tree.byLineNo.get(lineNo) ?? -1];
+	if (!node) return null;
+	return content.split('\n').slice(lineNo + 1, node.subtreeEndLine);
+}
+
+/**
  * Build the containment tree for a note.
  *
  * Parenthood is decided by an indent STACK, never by dividing the width by a

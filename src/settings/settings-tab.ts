@@ -80,6 +80,17 @@ export class TaskNotesSettingTab extends PluginSettingTab {
 	private reminderDetailEl: HTMLElement | null = null;
 	private conversionTemplateEl: HTMLElement | null = null;
 	/** Live status lines, so a refresh while the tab is open updates in place. */
+	/**
+	 * The last value that validated, per format key.
+	 *
+	 * `formatRow` reverts on blur — but Chromium fires no `blur` when the settings
+	 * pane is DETACHED, which is what closing it with Escape does. So a half-typed
+	 * `By {dat}, …` survived, `hide()` flushed it to disk, and every 📅 note made
+	 * afterwards had a name `hasScheduledDatePart` could not read: the notes simply
+	 * stopped appearing on the timeline, with no error anywhere. Kept on the class
+	 * so the close path can reach it.
+	 */
+	private lastGoodFormats = new Map<string, string>();
 	private statusEls = new Map<string, { el: HTMLElement; cal: IcsCalendarSettings }>();
 	private unsubscribeStatus: (() => void) | null = null;
 	private calendarListEl: HTMLElement | null = null;
@@ -102,8 +113,26 @@ export class TaskNotesSettingTab extends PluginSettingTab {
 	hide(): void {
 		this.unsubscribeStatus?.();
 		this.unsubscribeStatus = null;
+		// …but it must not SAVE a broken one either. Closing the pane detaches the
+		// inputs without firing `blur`, so `formatRow`'s revert never ran and the
+		// flush below would persist whatever was half-typed. Re-check every format
+		// key here, on the same rule, before anything reaches disk.
+		this.revertInvalidFormats();
 		// Closing the tab must not lose the last keystroke.
 		this.saveDebounced.run();
+	}
+
+	/** Roll any format field that is currently invalid back to its last good value. */
+	private revertInvalidFormats(): void {
+		for (const [key, good] of this.lastGoodFormats) {
+			const field = key as StringKeys;
+			const current = this.s[field];
+			if (current === good) continue;
+			const error = this.formatError(field, current);
+			if (!error) continue;
+			this.s[field] = good;
+			new Notice(`Invalid format kept out of your settings: ${error}`);
+		}
 	}
 
 	display(): void {
@@ -179,7 +208,12 @@ export class TaskNotesSettingTab extends PluginSettingTab {
 		);
 
 		for (const spec of EMOJI_REGISTRY.filter((s) => s.appliesTo === 'file')) {
-			this.formatRow(details, `${capitalize(spec.menuLabel)} format`, formatKeyOf(spec));
+			this.formatRow(
+				details,
+				`${capitalize(spec.menuLabel)} format`,
+				formatKeyOf(spec),
+				spec.key === 'scheduled' ? () => this.host.onIndexSettingsChanged() : undefined,
+			);
 		}
 
 		new Setting(details).setName('Folder task formats').setHeading();
@@ -216,9 +250,15 @@ export class TaskNotesSettingTab extends PluginSettingTab {
 	 * and its `lastGood` closure — setting the input alone would make the next
 	 * invalid edit revert to the value from before.
 	 */
-	private formatRow(c: HTMLElement, name: string, key: StringKeys): (value: string) => void {
+	private formatRow(
+		c: HTMLElement,
+		name: string,
+		key: StringKeys,
+		afterValid?: () => void,
+	): (value: string) => void {
 		// The last value that validated — restored if the user leaves the field invalid.
 		let lastGood = this.s[key];
+		this.lastGoodFormats.set(key, lastGood);
 		let field: TextComponent | null = null;
 		new Setting(c)
 			.setName(name)
@@ -236,6 +276,8 @@ export class TaskNotesSettingTab extends PluginSettingTab {
 					const error = this.formatError(key, value);
 					if (!error) {
 						lastGood = value;
+						this.lastGoodFormats.set(key, value);
+						afterValid?.();
 						return;
 					}
 					// Restore just this field (no full re-render, which would swallow
@@ -250,6 +292,7 @@ export class TaskNotesSettingTab extends PluginSettingTab {
 
 		return (value) => {
 			lastGood = value;
+			this.lastGoodFormats.set(key, value);
 			field?.setValue(value);
 		};
 	}
@@ -286,10 +329,12 @@ export class TaskNotesSettingTab extends PluginSettingTab {
 		this.toggleRow(
 			c,
 			'Apply templates on conversion',
-			'Apply a type\'s template when a note ADOPTS that type — converting a plain note ' +
-				'(file menu or command palette), changing the Type in the task-properties panel, ' +
-				'or "Mark as …" from the right-click menu. Changing a type only fills a note that ' +
-				'is EMPTY, so a note you have already written in is never touched.',
+			'Apply a type\'s template when a note ADOPTS that type. The two routes differ, and ' +
+				'the difference is the point: CONVERTING a plain note (file menu or command ' +
+				'palette) appends the template below whatever the note already says, because that ' +
+				'is a note becoming a task. CHANGING the type in place (the task-properties panel, ' +
+				'or "Mark as …") only ever fills a note that is EMPTY, so a note you have already ' +
+				'written in is never touched by a type change.',
 			'applyTemplateOnConvert',
 			// In place: this row lives INSIDE the disclosure, so re-rendering the
 			// pane rebuilt it CLOSED and the row the user had just clicked vanished.
@@ -326,6 +371,10 @@ export class TaskNotesSettingTab extends PluginSettingTab {
 				.onChange((value) => {
 					this.s[key] = value;
 					this.saveDebounced();
+					// Template paths are excluded from the event index. The reindex is
+					// itself debounced, so typing remains cheap while the final path takes
+					// effect without a reload.
+					this.host.onIndexSettingsChanged();
 				});
 			text.inputEl.addClass('task-notes-input-fullwidth');
 		});
@@ -358,6 +407,7 @@ export class TaskNotesSettingTab extends PluginSettingTab {
 			'Only treat date-named notes inside your daily-notes folder as day plans. Turn this off and EVERY ' +
 				'date-named note anywhere in the vault becomes a day plan, and can drive automatic renames.',
 			'strictDailyNoteFolder',
+			() => this.host.onIndexSettingsChanged(),
 		);
 		this.renderTemplateBlock(c);
 	}
@@ -374,8 +424,9 @@ export class TaskNotesSettingTab extends PluginSettingTab {
 			`Daily template: ${template ?? 'none set (Settings → core plugins → Daily notes)'}. ` +
 				'It is merged in automatically only when a note holds NOTHING but its planner lines — ' +
 				'checked when Obsidian starts, when the day rolls over while it is running, and when you ' +
-				'open such a note. A note with anything else in it is never touched, and a day you planned ' +
-				'ahead stays bare until its date arrives.',
+				'open such a note. A note with anything else in it is never touched. A day you planned ' +
+				'ahead therefore stays bare until you open it or its date arrives, whichever comes ' +
+				'first; days already in the past are left alone entirely.',
 		);
 		new Setting(c)
 			.setName('Apply the template now')
@@ -688,9 +739,14 @@ export class TaskNotesSettingTab extends PluginSettingTab {
 				// "Calendar 3" while you type the calendar's real name into it.
 				head.setName(v.trim() || `Calendar ${index + 1}`);
 				this.saveDebounced();
-				// Name/colour are baked into each RemoteEvent at expand time,
-				// so a re-expand is needed for the change to show.
-				this.host.onIcsSettingsChanged();
+				// RE-EXPAND, not re-fetch. The name is baked into each RemoteEvent
+				// when the feed is expanded, so the change does need a re-expand —
+				// but `onIcsSettingsChanged` also hits the network for EVERY
+				// calendar, on every keystroke of the name field. `onIcsColorsChanged`
+				// is the existing hook for exactly this: re-expand from the cached
+				// body, no request. Its own doc already warned about this mistake
+				// for the colour picker.
+				this.host.onIcsColorsChanged();
 			});
 			// Marked so focusCalendarName can find it without counting siblings.
 			const nameInput = fields.controlEl.querySelector<HTMLInputElement>('input[type="text"]');

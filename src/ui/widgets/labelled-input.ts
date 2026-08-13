@@ -1,6 +1,8 @@
 // One labelled-input builder shared by the footer bar and the task modal, so both
 // emit the same markup and use the same `.tn-input` styling family.
 
+import { colonToMinutes, dotToMinutes, minutesToColon, minutesToDot } from '../../core/timestamps';
+
 export interface LabelledInputOptions {
 	label: string;
 	type?: 'text' | 'date' | 'time';
@@ -29,14 +31,23 @@ export function labelledInput(parent: HTMLElement, options: LabelledInputOptions
 	return input;
 }
 
-/** Convert an `<input type="time">` value (HH:MM) to the filename form (HH.MMh). */
+/**
+ * Convert an `<input type="time">` value (HH:MM) to the filename form (HH.MMh).
+ *
+ * Delegated to core/timestamps rather than pattern-matched here. The hand-rolled
+ * versions were not equivalent to the canonical ones: this one required exactly
+ * two hour digits, so the `H:MM` that `colonToMinutes` accepts was silently
+ * dropped; and the reverse was unanchored and unvalidated, so a name carrying
+ * `at 99.99h` (which the grammar matches without range-checking) filled the At
+ * field with nonsense — after which Apply dropped the time clause entirely.
+ */
 export function timeInputToDotHours(value: string): string {
-	const m = value.match(/^(\d{2}):(\d{2})$/);
-	return m ? `${m[1]}.${m[2]}h` : '';
+	const minutes = colonToMinutes(value);
+	return minutes == null ? '' : minutesToDot(minutes);
 }
 
 /** Convert the filename time form (HH.MMh) to an `<input type="time">` value. */
 export function dotHoursToTimeInput(value: string | undefined): string {
-	const m = value?.match(/(\d{2})\.(\d{2})h/);
-	return m ? `${m[1]}:${m[2]}` : '';
+	const minutes = value == null ? null : dotToMinutes(value);
+	return minutes == null ? '' : minutesToColon(minutes);
 }

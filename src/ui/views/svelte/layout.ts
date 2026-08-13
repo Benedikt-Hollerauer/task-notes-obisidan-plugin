@@ -56,7 +56,7 @@ export interface AllDayItem {
 export interface DayBlocks {
 	timed: TimedBlock[];
 	allDay: AllDayItem[];
-	/** Ids of timed blocks that overlap another block on this day. */
+	/** Render keys of timed blocks that overlap another block on this day. */
 	overlapping: Set<string>;
 }
 
@@ -98,10 +98,10 @@ export function dayBlocks(dayKey: string, events: TaskEvent[], settings: SlotSet
 	// One clustering pass for both answers: which column a block sits in, and
 	// whether it overlaps anything. They are the same traversal.
 	const { placement, overlapping } = overlapLayout(
-		timedRaw.map((b) => ({ id: b.id, start: b.startMin, end: b.endMin })),
+		timedRaw.map((b) => ({ id: b.key, start: b.startMin, end: b.endMin })),
 	);
 	const timed: TimedBlock[] = timedRaw.map((b) => {
-		const p = placement.get(b.id);
+		const p = placement.get(b.key);
 		return { ...b, left: p?.left ?? 0, width: p?.width ?? 1 };
 	});
 

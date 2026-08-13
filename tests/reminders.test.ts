@@ -68,7 +68,15 @@ describe('remindersFor', () => {
 		expect(remindersFor(untimed, SETTINGS).some((r) => r.kind !== 'allday')).toBe(false);
 	});
 
-	it('handles a remote event, and skips an all-day remote one', () => {
+	// REVERSED DELIBERATELY in v4.4. This used to assert that a remote all-day
+	// event produced NO reminders — "no local day key to announce it on" — which
+	// made a subscribed birthday or holiday feed announce nothing at all, while two
+	// settings ("Notify for remote events", "Announce all-day items at (hour)")
+	// promised coverage with no carve-out. "Send a test notification" reported zero
+	// reminders armed while the calendar plainly showed them.
+	//
+	// The occurrence's start day IS a usable key; it just was not being taken.
+	it('handles a remote event, and announces an all-day remote one', () => {
 		const remote: RemoteEvent = {
 			kind: 'remote',
 			id: 'r1',
@@ -81,9 +89,21 @@ describe('remindersFor', () => {
 			color: '#123456',
 		};
 		expect(remindersFor(remote, SETTINGS)).toHaveLength(2);
-		// A remote all-day event has no local day key to announce it on.
-		expect(remindersFor({ ...remote, allDay: true }, SETTINGS)).toEqual([]);
+
+		// It still has no START time — that part was always right.
 		expect(eventStartTs({ ...remote, allDay: true })).toBeNull();
+
+		// …but it does get the morning-of announcement, on its own start day, at
+		// the configured hour. Exactly one, and never a 'start'/'lead' pair.
+		const allDay = remindersFor({ ...remote, allDay: true }, SETTINGS);
+		expect(allDay).toHaveLength(1);
+		expect(allDay[0].kind).toBe('allday');
+		expect(allDay[0].fireAt).toBe(ts('2026-08-11T08:00:00'));
+
+		// And the existing off switch still silences it.
+		expect(remindersFor({ ...remote, allDay: true }, { ...SETTINGS, notifyAllDayAtHour: -1 })).toEqual(
+			[],
+		);
 	});
 });
 

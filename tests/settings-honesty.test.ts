@@ -54,6 +54,45 @@ describe('a broken calendar entry cannot break the settings pane', () => {
 		const good = { id: 'c1', name: 'Work', url: 'https://x/y.ics', color: '#fff', email: '', enabled: false };
 		expect(migrateSettings({ icsCalendars: [good] } as never, false).icsCalendars).toEqual([good]);
 	});
+
+	it('recovers a malformed calendar list and duplicate ids', () => {
+		expect(migrateSettings({ icsCalendars: 'not an array' } as never, false).icsCalendars).toEqual([]);
+		const calendars = migrateSettings(
+			{ icsCalendars: [{ id: 'same' }, { id: 'same' }, {}, {}] } as never,
+			false,
+		).icsCalendars;
+		expect(new Set(calendars.map((calendar) => calendar.id)).size).toBe(calendars.length);
+	});
+});
+
+describe('malformed persisted settings fall back before reaching timers or geometry', () => {
+	it('normalizes wrong types, non-finite numbers and unsupported enums', () => {
+		const merged = migrateSettings(
+			{
+				plannerHeading: 42,
+				showPlainTextBlocks: 'yes',
+				icsRefreshIntervalMinutes: Number.NaN,
+				hourHeightPx: Number.POSITIVE_INFINITY,
+				snapMinutes: 7,
+				timelineDefaultRange: 'forever',
+				firstDayOfWeek: 'tuesday',
+			} as never,
+			false,
+		);
+		expect(merged.plannerHeading).toBe(DEFAULT_SETTINGS.plannerHeading);
+		expect(merged.showPlainTextBlocks).toBe(DEFAULT_SETTINGS.showPlainTextBlocks);
+		expect(merged.icsRefreshIntervalMinutes).toBe(DEFAULT_SETTINGS.icsRefreshIntervalMinutes);
+		expect(merged.hourHeightPx).toBe(DEFAULT_SETTINGS.hourHeightPx);
+		expect(merged.snapMinutes).toBe(DEFAULT_SETTINGS.snapMinutes);
+		expect(merged.timelineDefaultRange).toBe(DEFAULT_SETTINGS.timelineDefaultRange);
+		expect(merged.firstDayOfWeek).toBe(DEFAULT_SETTINGS.firstDayOfWeek);
+	});
+
+	it('treats a corrupt schema version as an existing legacy install', () => {
+		const merged = migrateSettings({ settingsVersion: 'broken' } as never, false);
+		expect(merged.targetFolderFormat).toBe('{action} - {amount} - {outcome}');
+		expect(merged.settingsVersion).toBe(DEFAULT_SETTINGS.settingsVersion);
+	});
 });
 
 describe('SETTINGS_SECTIONS — every setting has exactly one home', () => {
@@ -121,7 +160,6 @@ describe('no setting is dead', () => {
 		uncheckedTaskTemplate: 'settings[templateKeyFor(emoji)] — services/task-file-service.ts',
 		scheduledTaskTemplate: 'settings[templateKeyFor(emoji)] — services/task-file-service.ts',
 		routineTaskTemplate: 'settings[templateKeyFor(emoji)] — services/task-file-service.ts',
-		completedTaskTemplate: 'settings[templateKeyFor(emoji)] — services/task-file-service.ts',
 		settingsVersion: 'migrateSettings only — internal, deliberately has no row',
 	};
 

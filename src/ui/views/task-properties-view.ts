@@ -14,9 +14,8 @@ import {
 	hasTaskEmoji,
 	getNormalizedEmoji,
 	extractTaskName,
-	normalizeEmoji,
-	cleanupTaskName,
 	activePrefixOf,
+	taskBasename,
 } from '../../core/emoji';
 import { parseTaskProperties, getTaskFormatByEmoji, generateTaskName } from '../../core/task-name';
 import {
@@ -27,6 +26,18 @@ import {
 } from '../../core/format-fields';
 import { labelledInput, timeInputToDotHours, dotHoursToTimeInput } from '../widgets/labelled-input';
 import { choiceRow } from '../widgets/choice-row';
+
+interface FormDraft {
+	values: Map<PropKey, string>;
+	startDate: string;
+	time: string;
+	endDate: string;
+}
+
+interface StagedDraft {
+	emoji: string | null;
+	form: FormDraft;
+}
 
 /**
  * Edits the active task note's properties — its name, taken apart into the
@@ -52,6 +63,12 @@ export class TaskPropertiesView extends ItemView {
 	private pendingEmoji: string | null = null;
 	/** The file the current form was built for, so a staged type cannot outlive it. */
 	private renderedPath: string | null = null;
+	/** Distinguishes the first empty render from a later no-op event for no file. */
+	private hasRendered = false;
+	/** Unsaved forms survive moving to another tab and back. Session-local only. */
+	private drafts = new Map<string, StagedDraft>();
+	/** Reads the current live controls immediately before the active task changes. */
+	private captureDraft: (() => FormDraft) | null = null;
 
 	constructor(
 		leaf: WorkspaceLeaf,
@@ -88,6 +105,11 @@ export class TaskPropertiesView extends ItemView {
 	async onClose(): Promise<void> {
 		this.contentEl.empty();
 		this.contentEl.removeClass('task-notes-properties-view');
+		this.hasRendered = false;
+		this.renderedPath = null;
+		this.pendingEmoji = null;
+		this.captureDraft = null;
+		this.drafts.clear();
 	}
 
 	/** Redraw for the currently active file. */
@@ -95,13 +117,34 @@ export class TaskPropertiesView extends ItemView {
 		const active = this.app.workspace.getActiveFile();
 		// A sidebar leaf never holds the note, so "active file" is the right
 		// question — but ignore our own view being focused.
-		this.file = active && hasTaskEmoji(active.basename) ? active : null;
+		const nextFile = active && hasTaskEmoji(active.basename) ? active : null;
+		const nextPath = nextFile?.path ?? null;
+		// Workspace and vault events are broad: an unrelated note rename, focusing
+		// the already-active tab, or opening the same file used to destroy and rebuild
+		// every input. Preserve the live DOM (and its unsaved values) when the task did
+		// not actually change.
+		if (this.hasRendered && nextPath === this.renderedPath) {
+			this.file = nextFile;
+			return;
+		}
+		if (this.renderedPath && this.captureDraft) {
+			this.drafts.set(this.renderedPath, {
+				emoji: this.pendingEmoji,
+				form: this.captureDraft(),
+			});
+		}
+		this.file = nextFile;
 		// A different note — including this one AFTER a rename, which is how a
 		// successful Apply comes back to us — starts from what is on disk.
-		if (this.file?.path !== this.renderedPath) {
-			this.pendingEmoji = null;
-			this.renderedPath = this.file?.path ?? null;
+		let carried: FormDraft | undefined;
+		if (nextPath !== this.renderedPath) {
+			const saved = nextPath ? this.drafts.get(nextPath) : undefined;
+			this.pendingEmoji = saved?.emoji ?? null;
+			carried = saved?.form;
+			this.renderedPath = nextPath;
 		}
+		this.captureDraft = null;
+		this.hasRendered = true;
 		const { contentEl } = this;
 		contentEl.empty();
 
@@ -112,7 +155,7 @@ export class TaskPropertiesView extends ItemView {
 			});
 			return;
 		}
-		this.buildForm(contentEl, this.file);
+		this.buildForm(contentEl, this.file, carried);
 	}
 
 	/**
@@ -121,7 +164,7 @@ export class TaskPropertiesView extends ItemView {
 	 *   different fields, and losing what was typed to do that would be its own
 	 *   small betrayal.
 	 */
-	private buildForm(parent: HTMLElement, file: TFile, carried?: Map<PropKey, string>): void {
+	private buildForm(parent: HTMLElement, file: TFile, carried?: FormDraft): void {
 		// TWO emojis, on purpose. `diskEmoji` is what the FILE says and is all the
 		// header may show — the header is a preview of the note, and nothing in a
 		// preview moves before Apply. `emoji` is the STAGED type (falling back to
@@ -160,7 +203,7 @@ export class TaskPropertiesView extends ItemView {
 			// been typed; Apply is what touches the file.
 			onPick: (next) => {
 				this.pendingEmoji = next;
-				const typed = values();
+				const typed = draft();
 				parent.empty();
 				this.buildForm(parent, file, typed);
 			},
@@ -178,9 +221,21 @@ export class TaskPropertiesView extends ItemView {
 		let endDate: HTMLInputElement | null = null;
 		if (isEvent) {
 			const when = this.buildCard(parent, 'When');
-			startDate = labelledInput(when, { label: 'Date', type: 'date', value: props.startDate ?? '' });
-			time = labelledInput(when, { label: 'At', type: 'time', value: dotHoursToTimeInput(props.time) });
-			endDate = labelledInput(when, { label: 'To', type: 'date', value: props.endDate ?? '' });
+			startDate = labelledInput(when, {
+				label: 'Date',
+				type: 'date',
+				value: carried?.startDate ?? props.startDate ?? '',
+			});
+			time = labelledInput(when, {
+				label: 'At',
+				type: 'time',
+				value: carried?.time ?? dotHoursToTimeInput(props.time),
+			});
+			endDate = labelledInput(when, {
+				label: 'To',
+				type: 'date',
+				value: carried?.endDate ?? props.endDate ?? '',
+			});
 		}
 
 		// One input per field the format declares — a two-field format gets two
@@ -193,7 +248,7 @@ export class TaskPropertiesView extends ItemView {
 			el: labelledInput(body, {
 				label: field.label,
 				type: 'text',
-				value: carried?.get(field.propKey) ?? props[field.propKey] ?? '',
+				value: carried?.values.get(field.propKey) ?? props[field.propKey] ?? '',
 				placeholder: field.label,
 			}),
 		}));
@@ -209,6 +264,15 @@ export class TaskPropertiesView extends ItemView {
 
 		const values = (): Map<PropKey, string> =>
 			new Map(textInputs.map(({ field, el }) => [field.propKey, el.value]));
+		const draft = (): FormDraft => ({
+			values: values(),
+			// Keep a previous event draft even while an intermediate, non-event type
+			// has no date controls of its own.
+			startDate: startDate?.value ?? carried?.startDate ?? props.startDate ?? '',
+			time: time?.value ?? carried?.time ?? dotHoursToTimeInput(props.time),
+			endDate: endDate?.value ?? carried?.endDate ?? props.endDate ?? '',
+		});
+		this.captureDraft = draft;
 
 		const validate = (): void => {
 			const missing = missingFields(fields, values());
@@ -304,11 +368,11 @@ export class TaskPropertiesView extends ItemView {
 		// or the panel becomes the way around it.
 		if (!(await this.taskFiles.mayMarkChecked(file, emoji))) return;
 
-		const normalizedEmoji = normalizeEmoji(emoji);
-		const prefix = activePrefixOf(file.basename); // 🅰️ survives property edits
-		const newName = `${prefix}${normalizedEmoji} ${cleanupTaskName(generateTaskName(props, format))}`
-			.replace(/\s+/g, ' ')
-			.trim();
+		const newName = taskBasename(
+			emoji,
+			generateTaskName(props, format),
+			activePrefixOf(file.basename), // 🅰️ survives property edits
+		);
 		if (newName === file.basename) return; // a no-op Apply must not touch the vault
 		// Read BEFORE the rename: Obsidian mutates the TFile in place, and the
 		// template rule below asks "which type did this note have a moment ago?".

@@ -1,10 +1,12 @@
 import {
 	defaultFormats,
 	defaultTemplates,
+	TIMELINE_RANGES,
 	type TaskFormatSettings,
 	type TaskTemplateSettings,
 } from '../constants';
 import type { TimelineRange } from '../constants';
+import { HOUR_HEIGHT_MAX, HOUR_HEIGHT_MIN } from '../core/zoom';
 
 /** Current settings schema version. */
 export const CURRENT_SETTINGS_VERSION = 2;
@@ -145,7 +147,21 @@ export const DEFAULT_SETTINGS: TaskNotesSettings = {
 /** The goal format shipped before {identity} existed. */
 export const LEGACY_TARGET_FORMAT = '{action} - {amount} - {outcome}';
 
-/** Merge persisted data over defaults (adds new keys, keeps user values). */
+function finiteNumber(value: unknown, fallback: number, min: number, max: number): number {
+	if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+	return Math.min(Math.max(value, min), max);
+}
+
+function supportedNumber(
+	value: unknown,
+	fallback: number,
+	allowed: readonly number[],
+): number {
+	return typeof value === 'number' && Number.isFinite(value) && allowed.includes(value)
+		? value
+		: fallback;
+}
+
 /**
  * `isFreshVault` is the CALLER's answer: only it can see the whole data file.
  * This function is handed the settings half, with the ICS cache and the hidden
@@ -155,27 +171,102 @@ export const LEGACY_TARGET_FORMAT = '{action} - {amount} - {outcome}';
 export function migrateSettings(raw: unknown, isFreshVault: boolean): TaskNotesSettings {
 	const data = (raw && typeof raw === 'object' ? raw : {}) as Partial<TaskNotesSettings>;
 	const merged = Object.assign({}, DEFAULT_SETTINGS, data);
+
+	// data.json is user-editable and can also arrive half-written through a sync
+	// service. Keep valid values byte-for-byte, but never let a wrong type reach a
+	// timer or geometry calculation: `Math.max(1, NaN)` is NaN, and setInterval
+	// treats that as a zero-delay fetch loop.
+	for (const [key, fallback] of Object.entries(DEFAULT_SETTINGS) as [keyof TaskNotesSettings, unknown][]) {
+		const value = merged[key];
+		if (typeof fallback === 'boolean' && typeof value !== 'boolean') {
+			(merged as Record<keyof TaskNotesSettings, unknown>)[key] = fallback;
+		} else if (typeof fallback === 'string' && typeof value !== 'string') {
+			(merged as Record<keyof TaskNotesSettings, unknown>)[key] = fallback;
+		}
+	}
+
+	merged.plannerHeading = merged.plannerHeading.trim() || DEFAULT_SETTINGS.plannerHeading;
+	merged.defaultEventDurationMinutes = finiteNumber(
+		merged.defaultEventDurationMinutes,
+		DEFAULT_SETTINGS.defaultEventDurationMinutes,
+		5,
+		240,
+	);
+	merged.dayStartHour = finiteNumber(merged.dayStartHour, DEFAULT_SETTINGS.dayStartHour, 0, 23);
+	merged.visibleStartHour = finiteNumber(merged.visibleStartHour, DEFAULT_SETTINGS.visibleStartHour, 0, 23);
+	merged.visibleEndHour = finiteNumber(merged.visibleEndHour, DEFAULT_SETTINGS.visibleEndHour, 1, 24);
+	merged.hourHeightPx = finiteNumber(
+		merged.hourHeightPx,
+		DEFAULT_SETTINGS.hourHeightPx,
+		HOUR_HEIGHT_MIN,
+		HOUR_HEIGHT_MAX,
+	);
+	merged.snapMinutes = supportedNumber(
+		merged.snapMinutes,
+		DEFAULT_SETTINGS.snapMinutes,
+		[5, 10, 15, 30],
+	);
+	merged.icsRefreshIntervalMinutes = finiteNumber(
+		merged.icsRefreshIntervalMinutes,
+		DEFAULT_SETTINGS.icsRefreshIntervalMinutes,
+		1,
+		60,
+	);
+	merged.notifyLeadMinutes = finiteNumber(
+		merged.notifyLeadMinutes,
+		DEFAULT_SETTINGS.notifyLeadMinutes,
+		0,
+		60,
+	);
+	merged.notifyAllDayAtHour = finiteNumber(
+		merged.notifyAllDayAtHour,
+		DEFAULT_SETTINGS.notifyAllDayAtHour,
+		-1,
+		23,
+	);
+	if (!TIMELINE_RANGES.includes(merged.timelineDefaultRange)) {
+		merged.timelineDefaultRange = DEFAULT_SETTINGS.timelineDefaultRange;
+	}
+	if (!(['locale', 'monday', 'sunday'] as const).includes(merged.firstDayOfWeek)) {
+		merged.firstDayOfWeek = DEFAULT_SETTINGS.firstDayOfWeek;
+	}
 	// Deep-copy arrays: settings-tab mutates in place (push/splice), and a shared
 	// reference would silently corrupt DEFAULT_SETTINGS for the process lifetime.
 	// Normalised, not just copied: a hand-edited or truncated entry missing `name`
 	// or `url` threw while the settings tab rendered, which left the pane half
 	// drawn and that calendar impossible to delete.
-	merged.icsCalendars = (data.icsCalendars ?? DEFAULT_SETTINGS.icsCalendars)
+	const calendarSource = Array.isArray(data.icsCalendars)
+		? data.icsCalendars
+		: DEFAULT_SETTINGS.icsCalendars;
+	const usedCalendarIds = new Set<string>();
+	merged.icsCalendars = calendarSource
 		.filter((c): c is IcsCalendarSettings => !!c && typeof c === 'object')
-		.map((c, i) => ({
-			id: typeof c.id === 'string' && c.id ? c.id : `cal-recovered-${i}`,
-			name: typeof c.name === 'string' ? c.name : '',
-			url: typeof c.url === 'string' ? c.url : '',
-			color: typeof c.color === 'string' ? c.color : '',
-			email: typeof c.email === 'string' ? c.email : '',
-			enabled: c.enabled !== false,
-		}));
+		.map((c, i) => {
+			const requested = typeof c.id === 'string' && c.id ? c.id : `cal-recovered-${i}`;
+			let id = requested;
+			let suffix = 2;
+			while (usedCalendarIds.has(id)) id = `${requested}-${suffix++}`;
+			usedCalendarIds.add(id);
+			return {
+				id,
+				name: typeof c.name === 'string' ? c.name : '',
+				url: typeof c.url === 'string' ? c.url : '',
+				color: typeof c.color === 'string' ? c.color : '',
+				email: typeof c.email === 'string' ? c.email : '',
+				enabled: c.enabled !== false,
+			};
+		});
 
 	// An EXISTING install must never inherit a changed default — that would alter
 	// how their filenames are generated without them asking. Only a fresh vault
 	// (no persisted data at all) starts on the new goal format; everyone else keeps
 	// the legacy one until they opt in from the settings tab.
-	const version = data.settingsVersion ?? (isFreshVault ? CURRENT_SETTINGS_VERSION : 1);
+	const version =
+		typeof data.settingsVersion === 'number' && Number.isFinite(data.settingsVersion)
+			? data.settingsVersion
+			: isFreshVault
+				? CURRENT_SETTINGS_VERSION
+				: 1;
 	if (version < 2 && data.targetFolderFormat === undefined) {
 		merged.targetFolderFormat = LEGACY_TARGET_FORMAT;
 	}
@@ -225,7 +316,6 @@ export const SETTINGS_SECTIONS: Record<string, readonly (keyof TaskNotesSettings
 		'firstDayOfWeek',
 		'showCheckedBlocks',
 		'showPlainTextBlocks',
-		'showExplorerCheckboxes',
 	],
 	dailyNotes: ['plannerHeading', 'sortPlannerLinesOnInsert', 'strictDailyNoteFolder'],
 	calendar: [
@@ -233,6 +323,10 @@ export const SETTINGS_SECTIONS: Record<string, readonly (keyof TaskNotesSettings
 		'calendarShowTaskDots',
 		'calendarShowEventDots',
 		'calendarConfirmCreate',
+		// Rendered by `renderCalendarDots`, not `renderTimeline` — it was filed
+		// under `timeline` while its only row lives here, so this map (whose own
+		// doc calls membership "the contract") pointed at the wrong pane.
+		'showExplorerCheckboxes',
 	],
 	remoteCalendars: ['icsCalendars', 'icsRefreshIntervalMinutes'],
 	reminders: [
@@ -255,7 +349,6 @@ export const SETTINGS_SECTIONS: Record<string, readonly (keyof TaskNotesSettings
 		'uncheckedTaskTemplate',
 		'scheduledTaskTemplate',
 		'routineTaskTemplate',
-		'completedTaskTemplate',
 	],
 } as const;
 
@@ -269,10 +362,11 @@ export const AUTOMATIC_CHANGES: readonly AutomaticChange[] = [
 		key: 'syncFilenameOnReschedule',
 		name: 'Rename 📅 notes to match their planner line',
 		desc:
-			'When you drag a block, rewrite the note’s filename so its date and time match. ' +
-			'Only lines the timeline draws as their own block can do this. Off = filenames ' +
-			'only change when you rename them.',
-		summary: 'rename a 📅 note when its planner line moves',
+			'Keeps a 📅 note’s filename and its planner line saying the same thing, in both ' +
+			'directions: drag a block and the note’s filename is rewritten to match, and rename ' +
+			'the file’s time in the explorer and the planner line is rewritten to match. Only ' +
+			'lines the timeline draws as their own block take part. Off = neither is rewritten.',
+		summary: 'keep a 📅 note’s filename and its planner line in step, both ways',
 	},
 	{
 		key: 'applyTemplateOnDayArrival',

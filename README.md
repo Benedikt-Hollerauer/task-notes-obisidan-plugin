@@ -148,7 +148,7 @@ truthful. Nothing lives in a hidden database.
   into cards, with an Apply button that renames the file. Apply stays disabled until every
   required field is filled. Open it with *Open task properties*.
 - **Customisable formats** — `{action}`, `{amount}`, `{outcome}`, `{date}`, `{time}`, `{range}`.
-- **Five task types** — ◻️ Unchecked, 📅 Scheduled, 🔁 Routine, ✅ Completed, ❌ Cancelled —
+- **Five task types** — ◻️ Unchecked, 📅 Scheduled, 🔁 Routine, ✅ Completed, ❌ Unimportant —
   and two folder types — 🚀 Project, 🎯 Goal.
 - **Context-menu conversion**, **template application**, **checklist guard**,
   **auto-reopen**, and **auto file renaming**.
@@ -284,10 +284,10 @@ Click the checkbox to toggle between ◻️ and ✅. Use the right-click context
 
 | From | To (click) | To (menu) |
 |------|-----------|-----------|
-| ◻️ Unchecked | ✅ Completed | 📅 Scheduled, ❌ Cancelled |
-| 📅 Scheduled | ✅ Completed | ◻️ Unchecked, ❌ Cancelled |
-| ✅ Completed | ◻️ Unchecked | 📅 Scheduled, ❌ Cancelled |
-| ❌ Cancelled | ◻️ Unchecked | ✅ Completed, 📅 Scheduled |
+| ◻️ Unchecked | ✅ Completed | 📅 Scheduled, ❌ Unimportant |
+| 📅 Scheduled | ✅ Completed | ◻️ Unchecked, ❌ Unimportant |
+| ✅ Completed | ◻️ Unchecked | 📅 Scheduled, ❌ Unimportant |
+| ❌ Unimportant | ◻️ Unchecked | ✅ Completed, 📅 Scheduled |
 
 > **Note:** Marking a task ✅ is blocked while any `- [ ]` checklist items remain unchecked in the note body.
 
@@ -313,7 +313,7 @@ Edit under **Settings → Task Notes → Task name formats**.
 | ◻️ Unchecked | `{action} - {amount} - {outcome}` |
 | 📅 Scheduled | `By {date} (at {time} - {range}), {action} - {amount} - {outcome}` |
 | ✅ Completed | `{action} - {amount} - {outcome}` |
-| ❌ Cancelled | `{action} - {amount} - {outcome}` |
+| ❌ Unimportant | `{action} - {amount} - {outcome}` |
 
 ### Placeholders
 

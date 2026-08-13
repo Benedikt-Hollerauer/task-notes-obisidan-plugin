@@ -45,7 +45,7 @@
 		 * this file — like every view here — holds no Obsidian imports of its own.
 		 * Omitted, the label falls back to plain text.
 		 */
-		renderMarkdown?: ((el: HTMLElement, text: string, sourcePath?: string) => void) | null;
+		renderMarkdown?: ((el: HTMLElement, text: string, sourcePath?: string) => (() => void) | void) | null;
 		[key: string]: unknown;
 	} = $props();
 
@@ -53,19 +53,15 @@
 	// "done" has one definition, and this line used to restate it verbatim.
 	let done = $derived(isEventDone(event, hiddenRemote));
 
-	/**
-	 * At most one render per distinct text — chips redraw on every grid change.
-	 * `firstChild` joins the stamp so a blanked node is retried, never abandoned.
-	 */
-	function renderInto(node: HTMLElement, text: string): void {
+	/** Svelte owns the returned cleanup for exactly as long as this label is mounted. */
+	function renderInto(node: HTMLElement, text: string): (() => void) | void {
 		if (!renderMarkdown) return;
-		if (node.dataset.tnMd === text && node.firstChild) return;
 		node.dataset.tnMd = text;
 		// A planner line's wikilink resolves from ITS note — the daily note the
 		// line lives in — falling back to the linked file for unlinked ghosts.
 		const sourcePath =
 			event.kind === 'local' ? (event.placement?.dailyNotePath ?? event.filePath ?? '') : '';
-		renderMarkdown(node, text, sourcePath);
+		return renderMarkdown(node, text, sourcePath);
 	}
 </script>
 

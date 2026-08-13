@@ -11,12 +11,7 @@
 // would use is shown before anything happens.
 
 import type { LocalEvent, TaskProperties } from '../types';
-
-/** `HH.MMh`, the filename grammar's time form. */
-function dotHoursOf(minutes: number): string {
-	const pad = (n: number): string => String(n).padStart(2, '0');
-	return `${pad(Math.floor(minutes / 60))}.${pad(minutes % 60)}h`;
-}
+import { minutesToDot } from './timestamps';
 
 export interface LinkPrefill {
 	/** Seeds the dialog's fields. */
@@ -51,7 +46,7 @@ export function linkPrefill(
 	const durationMinutes = span != null && span > 0 ? span : defaults.defaultEventDurationMinutes;
 
 	return {
-		props: { ...parsed, startDate: event.date, time: dotHoursOf(start) },
+		props: { ...parsed, startDate: event.date, time: minutesToDot(start) },
 		durationMinutes,
 		timeWasMissing,
 	};

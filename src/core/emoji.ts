@@ -64,6 +64,25 @@ export function activePrefixOf(basename: string): string {
 }
 
 /**
+ * Assemble a task note's basename: `[🅰️ ]<emoji> <name>`, normalised and squeezed.
+ *
+ * THE ONE PLACE THIS IS SPELLED OUT. It used to be written inline at four call
+ * sites, and they disagreed: `changeStatus` and the properties panel passed
+ * `activePrefixOf(...)`, while `convert` and `createTaskNote` did not. So a note
+ * called `🅰️ 📅 By 2026-08-20, …` kept its marker through a status change and
+ * lost it through "Link into day plan" — an unrequested rename that also rewrote
+ * every wikilink pointing at it. The comment above says every rename must put the
+ * prefix back; making it a PARAMETER is what lets the compiler care.
+ *
+ * `prefix` is explicit rather than derived here because two callers legitimately
+ * have no previous name to derive it from: `createTaskNote` is making a file that
+ * does not exist yet.
+ */
+export function taskBasename(emoji: string, name: string, prefix = ''): string {
+	return `${prefix}${normalizeEmoji(emoji)} ${cleanupTaskName(name)}`.replace(/\s+/g, ' ').trim();
+}
+
+/**
  * Extract the recognised emoji prefix from a filename, or null. An active
  * marker before the emoji is tolerated. Matches the canonical form, the
  * invisible-stripped form, and the variation-selector-stripped form — so both

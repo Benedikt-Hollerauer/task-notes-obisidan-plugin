@@ -17,8 +17,19 @@
  *     migrateSettings' fill-missing pass) gets for that key.
  *   - `role`/`appliesTo` decide which menus and pickers offer it
  *     (specsFor, blockKindOptions).
- *   - Only a format containing `{date}` is treated as dated — nothing keys on
- *     the emoji itself.
+ *   - Only a format containing `{date}` is treated as dated, for NAMING purposes
+ *     (task-name.ts, the properties form, the date guard in changeStatus).
+ *
+ * ONE THING IS NOT DERIVED, and adding a type will not give it to you: the
+ * TIMELINE keys on the 📅 emoji specifically. `isScheduledBasename`
+ * (core/event-filename.ts) is `getNormalizedEmoji(basename) === SCHEDULED`, and
+ * `promptAddToPlan` / `addToPlan` / `shiftMultiDaySpan` name it directly. So a
+ * new entry with `role: 'scheduled'` gets settings rows, menus and filename
+ * generation for free, and its notes are still invisible to the timeline, the
+ * sync engine and reminders. Widening `isScheduledBasename` to test the ROLE is
+ * the change that would make this paragraph unnecessary — it is deliberately not
+ * made here, because it alters which existing files the index picks up.
+ *
  * tests/registry.test.ts walks the registry and fails if an entry is missing
  * anything; the filename grammar (core/task-name.ts) is untouched by additions.
  * ─────────────────────────────────────────────────────────────────────────── */
@@ -101,7 +112,19 @@ const REGISTRY = [
 		appliesTo: 'file',
 		formatSettingKey: 'completedTaskFormat',
 		defaultFormat: '{action} - {amount} - {outcome}',
-		templateSettingKey: 'completedTaskTemplate',
+		// NO TEMPLATE, deliberately. Every route that applies one skips done and
+		// dropped roles — `applyTemplateOnAdopt` and `convert` both guard on
+		// `isDoneRole`, and `createTaskNote` is only ever reached with an open or
+		// scheduled type. A ✅ template therefore could not fire, and the settings
+		// row for it sat there inviting people to configure nothing.
+		//
+		// The guards are not an oversight to undo: a completed template containing
+		// unchecked boxes trips `reopenCompletedOnUnchecked`, which renames the note
+		// the user just completed straight back to ◻️.
+		//
+		// Any value already saved under the old key stays in data.json untouched and
+		// is simply ignored — `migrateSettings` preserves unknown keys.
+		templateSettingKey: undefined,
 		// Declared across every entry so the union stays uniform — see the
 		// templateSettingKey note above.
 		requiredPrefix: undefined,
@@ -287,8 +310,15 @@ export const TASK_EMOJI_REGEX = new RegExp(
 	'u',
 );
 
-/** Matches (repeated) leading entity emojis for stray-prefix cleanup. */
-export const ENTITY_EMOJI_STRIP_REGEX = new RegExp(`^(?:${ENTITY_ALTERNATION})\\s*`, 'u');
+/**
+ * Matches REPEATED leading entity emojis for stray-prefix cleanup.
+ *
+ * The `+` is the whole point and was missing: the doc said "(repeated)" while the
+ * pattern matched exactly one, so a name that picked up two stray prefixes kept
+ * the second one for good — visible in the timeline, the explorer and every
+ * generated filename.
+ */
+export const ENTITY_EMOJI_STRIP_REGEX = new RegExp(`^(?:(?:${ENTITY_ALTERNATION})\\s*)+`, 'u');
 
 /** Look up the registry entry for a (normalized or canonical) emoji. */
 export function specByEmoji(emoji: string): RegistrySpec | undefined {

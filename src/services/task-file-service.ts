@@ -3,13 +3,11 @@ import type { TaskNotesSettings } from '../settings/settings';
 import type { TaskProperties } from '../types';
 import { TASK_EMOJIS, templateKeyFor, isDoneRole } from '../constants';
 import {
-	normalizeEmoji,
 	extractTaskName,
-	extractTaskEmoji,
 	hasTaskEmoji,
 	shouldApplyConvertTemplate,
-	cleanupTaskName,
 	activePrefixOf,
+	taskBasename,
 } from '../core/emoji';
 import { getTaskFormatByEmoji, generateTaskName } from '../core/task-name';
 import { hasScheduledDatePart } from '../core/event-filename';
@@ -70,9 +68,7 @@ export class TaskFileService {
 		if (!(await this.mayMarkChecked(item, newEmoji))) return false;
 
 		const rawTaskName = extractTaskName(getBasename(item));
-		const cleanEmoji = normalizeEmoji(newEmoji);
-		const prefix = activePrefixOf(getBasename(item)); // 🅰️ survives status changes
-		const newName = `${prefix}${cleanEmoji} ${rawTaskName}`.replace(/\s+/g, ' ').trim();
+		const newName = taskBasename(newEmoji, rawTaskName, activePrefixOf(getBasename(item)));
 
 		// A DATED type must end up with a date in its name. changeStatus swaps the
 		// emoji and keeps the rest, so ◻️ → 📅 on an undated name used to mint a
@@ -100,9 +96,9 @@ export class TaskFileService {
 	/**
 	 * The template for a type a note has just ADOPTED — for the routes that change
 	 * a type IN PLACE: the properties panel's Apply, the right-click "Mark as …"
-	 * menu, and "Use custom emoji". They cannot simply call `convert`, which
-	 * rebuilds the basename without `activePrefixOf` and would silently drop a
-	 * 🅰️ prefix.
+	 * menu, and "Use custom emoji". They keep the existing name and swap only the
+	 * emoji, where `convert` rebuilds the whole basename from supplied properties —
+	 * a different operation, not a cheaper one.
 	 *
 	 * `forceApply: false` IS the safety story, not a detail. It leaves only the
 	 * empty-note branch of `applyTemplate` reachable, which means:
@@ -164,8 +160,10 @@ export class TaskFileService {
 		const settings = this.getSettings();
 		const format = getTaskFormatByEmoji(emoji, settings);
 		const taskName = generateTaskName(props, format);
-		const cleanEmoji = normalizeEmoji(emoji);
-		const newName = `${cleanEmoji} ${cleanupTaskName(taskName)}`.replace(/\s+/g, ' ').trim();
+		// The 🅰️ prefix is CARRIED, not dropped. `convert` is also how "Link into day
+		// plan" renames a note that is already 📅, so losing it here silently
+		// de-marked the note and rewrote every wikilink to it.
+		const newName = taskBasename(emoji, taskName, activePrefixOf(getBasename(item)));
 
 		// Only when the note is genuinely BECOMING this type. It used to apply on
 		// every call, and `convert` is also how "add to the day plan" renames a note
@@ -222,8 +220,8 @@ export class TaskFileService {
 		const settings = this.getSettings();
 		const format = getTaskFormatByEmoji(emoji, settings);
 		const taskName = generateTaskName(props, format);
-		const cleanEmoji = normalizeEmoji(emoji);
-		const basename = `${cleanEmoji} ${cleanupTaskName(taskName)}`.replace(/\s+/g, ' ').trim();
+		// No prefix: this file does not exist yet, so there is no marker to carry.
+		const basename = taskBasename(emoji, taskName);
 		return this.createNoteNamed(basename, (file) => this.applyTemplate(file, emoji, true));
 	}
 
@@ -374,8 +372,4 @@ export class TaskFileService {
 		return this.app.vault.getMarkdownFiles();
 	}
 
-	/** Utility used by menus: the current emoji of a task item. */
-	currentEmoji(item: TAbstractFile): string {
-		return extractTaskEmoji(getBasename(item)) ?? '';
-	}
 }

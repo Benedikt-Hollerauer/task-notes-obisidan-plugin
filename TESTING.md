@@ -22,6 +22,7 @@ the change broke backward compatibility.
 
 ```bash
 ./docker-build.sh                 # builds and copies main.js/manifest.json/styles.css
+./docker-dev.sh <cmd>             # run any command inside the container (npm test, npm run check, …)
                                   # into test-vault/.obsidian/plugins/task-notes/
 # — or, without Docker —
 npm run build

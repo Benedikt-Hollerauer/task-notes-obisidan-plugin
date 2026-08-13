@@ -169,15 +169,4 @@ export class TaskPropertiesForm {
 		);
 		(firstEmpty ?? this.startDateInput ?? this.textInputs[0]?.el)?.focus();
 	}
-
-	/** Every input this form owns, for a caller that needs to wire them up. */
-	inputs(): HTMLInputElement[] {
-		return [
-			this.startDateInput,
-			this.timeInput,
-			this.endDateInput,
-			this.durationInput,
-			...this.textInputs.map((t) => t.el),
-		].filter((el): el is HTMLInputElement => !!el);
-	}
 }

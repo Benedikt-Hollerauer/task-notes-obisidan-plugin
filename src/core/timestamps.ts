@@ -38,7 +38,18 @@ export function minutesToDot(minutes: number): string {
 }
 
 function split(minutes: number): { h: number; m: number } {
-	const clamped = clamp(Math.round(minutes), 0, MINUTES_PER_DAY - 1);
+	const rounded = Math.round(minutes);
+	// MIDNIGHT IS 00:00, NOT 23:59. The day window's `endMin` is exactly 1440, so a
+	// block dragged to the bottom of the day was written one minute short — and the
+	// redraw made that short end the next drag's origin, so every drag shaved
+	// another minute off: 23:59, then 23:58, then 23:57.
+	//
+	// End-of-day already has a representation the parser round-trips: `- [ ] 23:00
+	// - 00:00` reads back as end 0. Wrapping 1440 to it makes what is DRAWN and what
+	// is WRITTEN the same value, which is what stops the ratchet. Clamping still
+	// catches anything genuinely out of range.
+	const wrapped = rounded === MINUTES_PER_DAY ? 0 : rounded;
+	const clamped = clamp(wrapped, 0, MINUTES_PER_DAY - 1);
 	return { h: Math.floor(clamped / 60), m: clamped % 60 };
 }
 

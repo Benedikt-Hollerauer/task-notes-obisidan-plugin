@@ -11,6 +11,8 @@ import { getBasename, notifyError } from '../../lib/obsidian-utils';
 export class ExplorerDecorator {
 	private observer: MutationObserver | null = null;
 	private observedContainer: Element | null = null;
+	/** Registered vault/layout callbacks remain live after stop(), so gate them. */
+	private enabled = false;
 
 	constructor(
 		private app: App,
@@ -26,10 +28,12 @@ export class ExplorerDecorator {
 	}
 
 	start(): void {
+		this.enabled = true;
 		this.ensureObserver();
 	}
 
 	stop(): void {
+		this.enabled = false;
 		this.observer?.disconnect();
 		this.observer = null;
 		this.observedContainer = null;
@@ -51,6 +55,7 @@ export class ExplorerDecorator {
 	}
 
 	private ensureObserver(): void {
+		if (!this.enabled) return;
 		const container = this.explorerRoot()?.querySelector('.nav-files-container');
 		if (!container) return;
 		// Obsidian can replace the file-explorer DOM (workspace changes); rebind to the
@@ -88,6 +93,7 @@ export class ExplorerDecorator {
 	}
 
 	private updateItem(item: TAbstractFile): void {
+		if (!this.enabled) return;
 		if (item instanceof TFile && item.extension !== 'md') return;
 
 		const el = this.explorerElement(item);

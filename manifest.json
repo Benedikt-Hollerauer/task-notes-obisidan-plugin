@@ -1,7 +1,7 @@
 {
   "id": "task-notes",
   "name": "Task Notes",
-  "version": "4.3.0",
+  "version": "4.4.0",
   "minAppVersion": "1.7.2",
   "description": "Turn notes into scheduled events. Day-planner timeblocking (day/week/month/6-month/year), a month calendar, remote ICS calendars and notifications \u2014 all driven by plain-markdown daily notes.",
   "author": "Benedikt Hollerauer",

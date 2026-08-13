@@ -64,9 +64,10 @@ export interface TimelineActions {
 	 * Goes through the context for the usual reason: the Svelte views hold no
 	 * Obsidian imports, and MarkdownRenderer is very much an Obsidian import.
 	 * The implementation sets the plain text first and swaps in the rendered
-	 * output when it arrives, so a block never flashes empty.
+	 * output when it arrives, so a block never flashes empty. The optional return
+	 * value owns renderer resources for as long as that output stays mounted.
 	 */
-	renderMarkdown(el: HTMLElement, text: string, sourcePath?: string): void;
+	renderMarkdown(el: HTMLElement, text: string, sourcePath?: string): (() => void) | void;
 }
 
 /** Everything the view remembers in the workspace layout. */
@@ -123,4 +124,3 @@ export interface TimelineViewContext {
 	/** Persist the view's own state into the workspace layout. */
 	persist(state: TimelineViewState): void;
 }
-

@@ -16,7 +16,7 @@
 	import EventChip from '../../src/ui/views/svelte/EventChip.svelte';
 	import type { TaskEvent } from '../../src/types';
 
-	type Renderer = (el: HTMLElement, text: string, sourcePath?: string) => void;
+	type Renderer = (el: HTMLElement, text: string, sourcePath?: string) => (() => void) | void;
 
 	let { event, initial }: { event: TaskEvent; initial: Renderer } = $props();
 

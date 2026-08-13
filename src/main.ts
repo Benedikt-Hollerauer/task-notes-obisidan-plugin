@@ -75,7 +75,10 @@ import { findPlacementLine } from './core/placement';
 import { hasUncheckedItem } from './core/checklist';
 import { HOUR_HEIGHT_MIN, HOUR_HEIGHT_MAX } from './core/zoom';
 import { dayMenuItems, type DayMenuAction } from './core/day-menu';
-import { notifyError, showMenuSafely, errorMessage , structuredNotice } from './lib/obsidian-utils';
+import { notifyError, showMenuSafely, errorMessage, structuredNotice } from './lib/obsidian-utils';
+import { createSerialQueue } from './core/serial-queue';
+import { normalizeIcsCache } from './core/ics-diagnosis';
+import { mountManagedRender } from './ui/managed-render';
 
 export default class TaskNotesPlugin extends Plugin implements SettingsHost {
 	settings: TaskNotesSettings = DEFAULT_SETTINGS;
@@ -85,7 +88,11 @@ export default class TaskNotesPlugin extends Plugin implements SettingsHost {
 	// `resetTimer: true` on every one of these: without it Obsidian's debounce is
 	// first-call-wins, which turns "coalesce a burst of keystrokes into one run"
 	// into "run on the first keystroke and ignore the rest of the burst".
-	private reindexSoon = debounce(() => void this.eventIndex.reindexAll(), 600, true);
+	private reindexSoon = debounce(
+		() => void this.eventIndex.reindexAll().catch((e) => notifyError('Failed to rebuild the event index', e)),
+		600,
+		true,
+	);
 	private reconfigureIcsSoon = debounce(() => this.icsService.reconfigure(this), 800, true);
 	private recolorIcsSoon = debounce(() => this.icsService.recolor(), 120, true);
 	/**
@@ -94,6 +101,8 @@ export default class TaskNotesPlugin extends Plugin implements SettingsHost {
 	 * megabytes, and the zoom wheel fires dozens of times a second.
 	 */
 	private saveSettingsSoon = debounce(() => void this.persist(), 400, true);
+	/** Keep data.json writes in invocation order so an older cache write cannot win. */
+	private persistQueued = createSerialQueue();
 	private templateWarned = false;
 
 	private dailyNotes!: DailyNoteService;
@@ -119,7 +128,12 @@ export default class TaskNotesPlugin extends Plugin implements SettingsHost {
 			this.app,
 			this.dailyNotes,
 			() => this.settings,
-			(paths) => paths.forEach((p) => void this.syncEngine.reconcile(p)),
+			(paths) =>
+				paths.forEach((p) =>
+					void this.syncEngine
+						.reconcile(p)
+						.catch((e) => notifyError(`Failed to sync events from ${p}`, e)),
+				),
 		);
 		this.syncEngine = new SyncEngine(this.app, this.eventIndex, this.dailyNotes, () => this.settings);
 		this.icsService = new IcsService(
@@ -138,7 +152,13 @@ export default class TaskNotesPlugin extends Plugin implements SettingsHost {
 				if (event.kind === 'local') this.openEvent(event);
 			},
 		);
-		this.menus = new TaskMenus(this.app, this.taskFiles, this.syncEngine, () => this.settings);
+		this.menus = new TaskMenus(
+			this.app,
+			this.taskFiles,
+			this.syncEngine,
+			() => this.settings,
+			(item) => item instanceof TFile && this.dailyNotes.isDailyNote(item),
+		);
 		this.explorer = new ExplorerDecorator(this.app, (item, e) => this.menus.showContextMenu(item, e));
 		const checklistGuard = new ChecklistGuard(this.app, this.taskFiles, () => this.settings);
 
@@ -179,7 +199,12 @@ export default class TaskNotesPlugin extends Plugin implements SettingsHost {
 		this.registerInterval(window.setInterval(() => nowStore.set(Date.now()), 30_000));
 		// daily-template merge on day rollover
 		this.lastTemplateCheckDay = todayKey();
-		this.registerInterval(window.setInterval(() => void this.checkDayRollover(), 60_000));
+		this.registerInterval(
+			window.setInterval(
+				() => void this.checkDayRollover().catch((e) => notifyError('Failed to check the daily template', e)),
+				60_000,
+			),
+		);
 
 		this.app.workspace.onLayoutReady(() => {
 			this.eventIndex.register(this);
@@ -187,15 +212,16 @@ export default class TaskNotesPlugin extends Plugin implements SettingsHost {
 			checklistGuard.register(this);
 			if (this.settings.showExplorerCheckboxes) this.explorer.start();
 			checklistGuard.seed();
-			void this.eventIndex.initialScan();
-			void this.icsService.refreshAll();
-			void this.checkTodaysTemplate();
+			void this.eventIndex.initialScan().catch((e) => notifyError('Failed to build the event index', e));
+			void this.icsService.refreshAll().catch((e) => notifyError('Failed to refresh remote calendars', e));
+			void this.checkTodaysTemplate().catch((e) => notifyError('Failed to check today’s template', e));
 		});
 	}
 
 	onunload(): void {
 		this.reindexSoon.cancel();
 		this.reconfigureIcsSoon.cancel();
+		this.recolorIcsSoon.cancel();
 		// Flushed, not cancelled: a pending zoom change is the user's, and dropping
 		// it would silently discard a setting they just made.
 		this.saveSettingsSoon.run();
@@ -209,15 +235,19 @@ export default class TaskNotesPlugin extends Plugin implements SettingsHost {
 	private serialize(): Record<string, unknown> {
 		return {
 			...this.settings,
-			[ICS_CACHE_DATA_KEY]: this.icsCache,
-			[HIDDEN_REMOTE_DATA_KEY]: this.hiddenRemote,
+			// Settings rows mutate calendar objects in place. Copy the mutable leaves
+			// so a queued snapshot cannot change underneath an in-flight saveData call.
+			icsCalendars: this.settings.icsCalendars.map((calendar) => ({ ...calendar })),
+			[ICS_CACHE_DATA_KEY]: { ...this.icsCache },
+			[HIDDEN_REMOTE_DATA_KEY]: Object.fromEntries(
+				Object.entries(this.hiddenRemote).map(([calendarId, ids]) => [calendarId, [...ids]]),
+			),
 		};
 	}
 
 	async loadSettings(): Promise<void> {
 		const raw = (await this.loadData()) as Record<string, unknown> | null;
-		const cache = (raw?.[ICS_CACHE_DATA_KEY] as Record<string, string>) ?? {};
-		this.icsCache = cache;
+		this.icsCache = normalizeIcsCache(raw?.[ICS_CACHE_DATA_KEY]);
 		const hidden = normalizeHidden(raw?.[HIDDEN_REMOTE_DATA_KEY]);
 		const clean = raw ? { ...raw } : {};
 		// Both blobs are stripped BEFORE migrateSettings: it merges unknown keys
@@ -250,11 +280,14 @@ export default class TaskNotesPlugin extends Plugin implements SettingsHost {
 	 * only the write, with one error policy instead of four.
 	 */
 	private async persist(): Promise<void> {
-		try {
-			await this.saveData(this.serialize());
-		} catch (e) {
-			notifyError('Failed to save Task Notes data', e);
-		}
+		const snapshot = this.serialize();
+		await this.persistQueued(async () => {
+			try {
+				await this.saveData(snapshot);
+			} catch (e) {
+				notifyError('Failed to save Task Notes data', e);
+			}
+		});
 	}
 
 	getTemplateFiles(): TFile[] {
@@ -503,58 +536,46 @@ export default class TaskNotesPlugin extends Plugin implements SettingsHost {
 	 * leave every block blank until it resolved — on a grid that redraws on every
 	 * zoom notch and clock tick, that flicker is the whole experience.
 	 *
-	 * Re-render churn is handled by the caller: the view only asks when the source
-	 * text has actually changed (see the `renderMarkdownInto` guard in TimeGrid).
+	 * Re-render churn is handled by Svelte attachments: they restart only when a
+	 * dependency changes or their keyed element is replaced, and run the cleanup
+	 * returned here before doing so.
 	 */
-	private renderMarkdownInto(el: HTMLElement, text: string, sourcePath: string): void {
-		// SYNCHRONOUS first pass, always. Obsidian's renderer is async and fails
-		// silently — when it does, a block is left showing its raw source, which
-		// looks exactly like the feature not being wired up at all. This puts the
-		// inline marks (`==`, `**`, `*`, backticks, `~~`) on screen immediately;
-		// the async pass below then upgrades the same element with everything this
-		// deliberately cannot do.
-		el.empty();
-		for (const seg of inlineSegments(text)) {
-			let node: HTMLElement = el;
-			// Outermost mark first, so `**==x==**` nests strong > mark.
-			for (const mark of [...seg.marks].reverse()) node = node.createEl(mark);
-			node.appendText(seg.text);
-		}
-
-		// Most planner lines are plain prose, for which the pass above is already
-		// byte-identical to what Obsidian would produce — so skip the async work
-		// entirely. On a day full of blocks that is dozens of detached renders and
-		// metadata-cache link resolutions avoided per redraw. The predicate errs
-		// toward rendering; see core/markdown-significance.ts.
-		if (!needsMarkdownRender(text)) return;
-
-		const holder = createDiv();
-		// A COMPONENT PER RENDER, not the plugin. Passing `this` made every chip's
-		// render a child of a component that lives until the plugin unloads, so a
-		// grid that re-renders on every zoom notch and clock tick accumulated them
-		// for the whole session. These are single planner lines — no embeds, no
-		// live blocks — so the owner's honest lifetime is the render itself, and
-		// unloading it releases whatever the renderer registered.
-		const owner = new Component();
-		owner.load();
-		void MarkdownRenderer.render(this.app, text, holder, sourcePath, owner)
-			.then(() => {
-				// The element may have been re-used or destroyed while we waited.
-				if (!el.isConnected) return;
-				// THE BLANK-CHIP BUG. When the renderer resolves with an EMPTY tree —
-				// which it can — swapping unconditionally wiped the sync-pass text,
-				// and the data-tn-md stamp then blocked every retry: blank forever.
-				// An empty render keeps what is already on screen.
-				if (!holder.firstChild) return;
+	private renderMarkdownInto(el: HTMLElement, text: string, sourcePath: string): () => void {
+		return mountManagedRender(
+			el,
+			() => {
+				// SYNCHRONOUS first pass, always. Obsidian's renderer is async and
+				// may fail; the title must stay readable while it works.
 				el.empty();
-				while (holder.firstChild) el.appendChild(holder.firstChild);
-			})
-			.catch((error) => {
-				// Keep the inline pass already on screen — a rendering failure must
-				// never blank a block, and must not lose the highlight either.
-				console.error('Task Notes: failed to render markdown', error);
-			})
-			.finally(() => owner.unload());
+				for (const seg of inlineSegments(text)) {
+					let node: HTMLElement = el;
+					for (const mark of [...seg.marks].reverse()) node = node.createEl(mark);
+					node.appendText(seg.text);
+				}
+			},
+			needsMarkdownRender(text)
+				? () => {
+						const holder = createDiv();
+						// The owner lives exactly as long as the mounted output: unloading it
+						// immediately breaks renderer-managed links and embeds.
+						const owner = new Component();
+						owner.load();
+						let completion: Promise<void>;
+						try {
+							completion = MarkdownRenderer.render(this.app, text, holder, sourcePath, owner);
+						} catch (error) {
+							owner.unload();
+							throw error;
+						}
+						return {
+							holder,
+							completion,
+							dispose: () => owner.unload(),
+						};
+					}
+				: null,
+			(error) => console.error('Task Notes: failed to render markdown', error),
+		);
 	}
 
 	/**
@@ -633,7 +654,12 @@ export default class TaskNotesPlugin extends Plugin implements SettingsHost {
 				mi
 					.setTitle('Refresh remote calendars')
 					.setIcon('refresh-cw')
-					.onClick(() => void this.icsService.refreshAll()),
+					.onClick(
+						() =>
+							void this.icsService
+								.refreshAll()
+								.catch((e) => notifyError('Failed to refresh remote calendars', e)),
+					),
 			);
 			return menu;
 		}
@@ -757,7 +783,12 @@ export default class TaskNotesPlugin extends Plugin implements SettingsHost {
 		// above are untouched — users may already have hotkeys bound to them.
 		this.addCommand({
 			id: 'open-daily-note',
-			name: "Open the focused day's daily note",
+			// "or create": this writes a new file when the day has none, and
+			// core/day-menu.ts sets the rule that an item which would create one
+			// must say so rather than hide it behind the word "open". The day menu
+			// complied; this command did not, and `calendarConfirmCreate` is off by
+			// default, so it created the note unannounced.
+			name: "Open (or create) the focused day's daily note",
 			// With nothing focused this is today, so one command covers both readings.
 			callback: () => void this.openOrCreateDaily(get(focusedDayStore).key || todayKey(), false),
 		});
@@ -767,7 +798,14 @@ export default class TaskNotesPlugin extends Plugin implements SettingsHost {
 		this.timelineCommand('timeline-zoom-out', 'Timeline: zoom out', (t) => t.zoomOut());
 		this.timelineCommand('timeline-toggle-calendar', 'Timeline: toggle calendar', (t) => t.toggleCalendar());
 
-		this.addCommand({ id: 'resync-calendars', name: 'Refresh remote calendars', callback: () => void this.icsService.refreshAll() });
+		this.addCommand({
+			id: 'resync-calendars',
+			name: 'Refresh remote calendars',
+			callback: () =>
+				void this.icsService
+					.refreshAll()
+					.catch((e) => notifyError('Failed to refresh remote calendars', e)),
+		});
 		this.addCommand({
 			id: 'test-notification',
 			name: 'Send a test notification',
@@ -795,7 +833,7 @@ export default class TaskNotesPlugin extends Plugin implements SettingsHost {
 		this.addCommand({
 			id: 'schedule-todays-events',
 			name: "Schedule today's events",
-			callback: () => this.scheduleTodaysEvents(),
+			callback: () => void this.scheduleTodaysEvents(),
 		});
 		this.addCommand({
 			id: 'create-event',
@@ -856,12 +894,6 @@ export default class TaskNotesPlugin extends Plugin implements SettingsHost {
 		notifyError('Could not read your daily note template', outcome.error);
 	}
 
-	/**
-	 * Merge the daily template into days that were planned ahead but never got it —
-	 * the automatic sweep only ever looks at today, so a day spent with Obsidian
-	 * closed is skipped. Lists them first and writes nothing without a confirm; the
-	 * plugin still never walks your vault on its own.
-	 */
 	/** The daily-note template configured in core Daily Notes, or null. */
 	dailyTemplatePath(): string | null {
 		return this.dailyNotes.templatePath();
@@ -887,6 +919,12 @@ export default class TaskNotesPlugin extends Plugin implements SettingsHost {
 		return this.applyTemplateToPastBareNotes();
 	}
 
+	/**
+	 * Merge the daily template into days that were planned ahead but never got it —
+	 * the automatic sweep only ever looks at today, so a day spent with Obsidian
+	 * closed is skipped. Lists them first and writes nothing without a confirm; the
+	 * plugin still never walks your vault on its own.
+	 */
 	private async applyTemplateToPastBareNotes(): Promise<void> {
 		const pending = await this.dailyNotes.findBarePastNotes(todayKey());
 		if (pending.length === 0) {
@@ -913,13 +951,19 @@ export default class TaskNotesPlugin extends Plugin implements SettingsHost {
 	 * Show every 📅 note dated today that no planner line links yet, so the morning
 	 * "did I plan all of this?" pass is one command instead of a manual search.
 	 */
-	private scheduleTodaysEvents(): void {
+	private async scheduleTodaysEvents(): Promise<void> {
+		// WAIT FOR THE INDEX. `localEventsStore` is empty until the first scan
+		// lands, and this read used to happen straight away — so running the
+		// command seconds after startup on a large vault reported "everything is
+		// already planned" when the plugin had simply not looked yet. The sync
+		// engine already flushes before it trusts the index; this did not.
+		await this.eventIndex.flushNow();
 		const today = todayKey();
 		const pending = get(localEventsStore).events.filter(
 			(ev) => !ev.linked && ev.date === today && ev.filePath,
 		);
 		if (pending.length === 0) {
-			new Notice("Everything dated today is already in the day plan.");
+			new Notice('Everything dated today is already in the day plan.');
 			return;
 		}
 		// This modal IS the prompt — it lists what would be added and writes only
@@ -1227,4 +1271,3 @@ export default class TaskNotesPlugin extends Plugin implements SettingsHost {
 		if (file) this.reportTemplateOutcome(await this.dailyNotes.applyTemplateIfBare(file), file);
 	}
 }
-

@@ -1,10 +1,11 @@
 import { App, Plugin, TFile, TAbstractFile, type CachedMetadata } from 'obsidian';
-import { structuredNotice } from '../lib/obsidian-utils';
+import { notifyError, structuredNotice } from '../lib/obsidian-utils';
 import { TASK_EMOJIS } from '../constants';
 import { getNormalizedEmoji, normalizeEmoji } from '../core/emoji';
 import { hasUncheckedItem } from '../core/checklist';
 import type { TaskFileService } from './task-file-service';
 import type { TaskNotesSettings } from '../settings/settings';
+import { createSerialQueue } from '../core/serial-queue';
 
 /**
  * Auto-reopen guard: when a ✅ completed task's body gains a new unchecked `- [ ]`
@@ -12,6 +13,18 @@ import type { TaskNotesSettings } from '../settings/settings';
  */
 export class ChecklistGuard {
 	private hasUnchecked = new Map<string, boolean>();
+	/**
+	 * The reopen rename, serialized.
+	 *
+	 * `metadataCache.on('changed')` can fire for several files — or twice for one
+	 * file — faster than a rename round-trips, and each handler is an independent
+	 * async chain. Two overlapping `changeStatus` calls both read the basename
+	 * BEFORE either rename lands, so the second computes its new name from a name
+	 * that no longer exists and its rename fails (or, worse, resurrects the old
+	 * one). This is the plugin's only rename nobody asked for, so it is the last
+	 * one that should race.
+	 */
+	private enqueue = createSerialQueue();
 
 	constructor(
 		private app: App,
@@ -22,7 +35,9 @@ export class ChecklistGuard {
 	register(plugin: Plugin): void {
 		plugin.registerEvent(
 			this.app.metadataCache.on('changed', (file, _data, cache) => {
-				void this.onChanged(file, cache);
+				void this.onChanged(file, cache).catch((e) =>
+					notifyError('Failed to update the task status from its checklist', e),
+				);
 			}),
 		);
 		plugin.registerEvent(
@@ -81,7 +96,9 @@ export class ChecklistGuard {
 			// refuse (not a task note) or fail (a name collision), and this used to
 			// claim success either way. It is also the plugin's only UNREQUESTED
 			// rename, so it is the one notice that must name the file.
-			const reopened = await this.taskFiles.changeStatus(file, TASK_EMOJIS.UNCHECKED);
+			const reopened = await this.enqueue(() =>
+				this.taskFiles.changeStatus(file, TASK_EMOJIS.UNCHECKED),
+			);
 			if (reopened) {
 				structuredNotice('Reopened to ◻️ — it has unchecked items again', file.basename, {
 					warn: true,

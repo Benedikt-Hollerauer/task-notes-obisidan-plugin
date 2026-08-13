@@ -32,6 +32,11 @@
 		title?: string;
 	}
 
+	interface DisplayEvent {
+		key: string;
+		event: TaskEvent;
+	}
+
 	let {
 		anchor,
 		events = [],
@@ -75,7 +80,7 @@
 		/** Hide/show one remote occurrence. Absent = remote chips show no checkbox. */
 		onSetRemoteHidden?: ((event: RemoteEvent, hidden: boolean) => void) | null;
 		/** Render a chip title as Markdown; absent = plain text. See EventChip. */
-		renderMarkdown?: ((el: HTMLElement, text: string) => void) | null;
+		renderMarkdown?: ((el: HTMLElement, text: string) => (() => void) | void) | null;
 		hiddenRemote?: ReadonlySet<string>;
 	} = $props();
 
@@ -116,8 +121,6 @@
 	let weekdays = $derived(
 		variant === 'chips' ? weekdayShortLabels(settings.firstDayOfWeek) : weekdayMinLabels(settings.firstDayOfWeek),
 	);
-	let byId = $derived(new Map(events.map((e) => [e.id, e])));
-
 	/** Events per day, computed once for the whole grid rather than per cell. */
 	let byDay = $derived.by(() => {
 		const map = new Map<string, TaskEvent[]>();
@@ -144,12 +147,36 @@
 		return byDay.get(day) ?? [];
 	}
 
+	/** A domain id may repeat; the rendered occurrence in this cell may not. */
+	function displayEventsOn(day: string): DisplayEvent[] {
+		return eventsOn(day).map((event, index) => ({
+			key: `${event.id}::${day}::${index}`,
+			event,
+		}));
+	}
+
+	/**
+	 * Each day's chip list, computed ONCE per render.
+	 *
+	 * `byDisplayKey` walked all 42 days calling `displayEventsOn`, and then the
+	 * template called it again for every cell — so `eventsOn` ran twice per day and
+	 * allocated a second set of wrapper objects each time. MiniMonths renders twelve
+	 * of these grids at once, which made it twenty-four full passes per redraw.
+	 */
+	let displayByDay = $derived(new Map(days.map((day) => [day, displayEventsOn(day)])));
+
+	let byDisplayKey = $derived(
+		new Map(
+			[...displayByDay.values()].flatMap((items) => items.map((item) => [item.key, item.event])),
+		),
+	);
+
 	// The grabbed chip's own cell — so grabbing a multi-day chip by a middle day
 	// moves it relatively instead of jumping to its start.
 	// pointerId, like every gesture in the TimeGrid: without it a second finger's
 	// pointerup ran the drop with ITS coordinates — a cross-day write and a rename
 	// from two stray taps. The exact bug ownsPointer exists to prevent.
-	let drag = $state<{ pointerId: number; id: string; originDay: string } | null>(null);
+	let drag = $state<{ pointerId: number; key: string; originDay: string } | null>(null);
 	let gridEl = $state<HTMLElement | null>(null);
 
 	$effect(() => {
@@ -180,18 +207,18 @@
 		// A control inside a chip (its checkbox) acts on click; starting a drag here
 		// would swallow that click.
 		if ((e.target as HTMLElement).closest('[data-badge]')) return;
-		const chip = (e.target as HTMLElement).closest<HTMLElement>('[data-chip-id]');
+		const chip = (e.target as HTMLElement).closest<HTMLElement>('[data-chip-key]');
 		if (!chip) return;
-		const id = chip.getAttribute('data-chip-id');
+		const key = chip.getAttribute('data-chip-key');
 		const originDay = chip.closest<HTMLElement>('[data-daykey]')?.getAttribute('data-daykey');
-		if (!id || !originDay) return;
-		drag = { pointerId: e.pointerId, id, originDay };
+		if (!key || !originDay) return;
+		drag = { pointerId: e.pointerId, key, originDay };
 		gridEl?.setPointerCapture?.(e.pointerId);
 	}
 
 	function onPointerUp(e: PointerEvent) {
 		if (!ownsPointer(drag, e)) return;
-		const { id, originDay } = drag;
+		const { key, originDay } = drag;
 		drag = null;
 		const el = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-daykey]');
 		// Scoped to THIS grid, exactly as TimeGrid scopes its own hit-tests. Two
@@ -200,7 +227,7 @@
 		// so a chip released over the OTHER view's calendar used to resolve a day
 		// from it and write a cross-day move the user never made there.
 		const targetDay = el && gridEl?.contains(el) ? el.getAttribute('data-daykey') : null;
-		const ev = byId.get(id);
+		const ev = byDisplayKey.get(key);
 		if (!ev || ev.kind === 'remote' || !targetDay) return;
 
 		// Dropped on the cell it came from = a click, never a write.
@@ -213,8 +240,8 @@
 
 	function onContextMenu(e: MouseEvent) {
 		const target = e.target as HTMLElement;
-		const chipId = target.closest<HTMLElement>('[data-chip-id]')?.getAttribute('data-chip-id');
-		const ev = chipId ? byId.get(chipId) : null;
+		const chipKey = target.closest<HTMLElement>('[data-chip-key]')?.getAttribute('data-chip-key');
+		const ev = chipKey ? byDisplayKey.get(chipKey) : null;
 		if (ev && onEventContextMenu) {
 			e.preventDefault();
 			e.stopPropagation();
@@ -252,11 +279,18 @@
 		onpointerdown={onPointerDown}
 		onpointerup={onPointerUp}
 		oncontextmenu={onContextMenu}
-		onpointercancel={() => (drag = null)}
-		onlostpointercapture={() => (drag = null)}
+		onpointercancel={(e) => {
+			// Only THIS drag's pointer may cancel it. A second finger touching down
+			// and lifting fires pointercancel with its own id, which used to clear a
+			// drag the first finger was still holding — the chip stopped following
+			// and the drop did nothing.
+			if (ownsPointer(drag, e)) drag = null;
+		}}
+		onlostpointercapture={(e) => ownsPointer(drag, e) && (drag = null)}
 	>
 		{#each days as day (day)}
 			{@const dayEvents = eventsOn(day)}
+			{@const displayedEvents = displayByDay.get(day) ?? []}
 			{@const shownChips = visibleRowCount(dayEvents.length, chipBudget, maxChips)}
 			<div
 				class="tn-cal-cell"
@@ -276,7 +310,8 @@
 					{#if variant === 'dots'}
 						<span class="tn-cal-dots-row">
 							{#if settings.calendarShowEventDots}
-								{#each dayEvents.slice(0, MAX_DOTS) as ev (ev.id)}
+								{#each displayedEvents.slice(0, MAX_DOTS) as item (item.key)}
+									{@const ev = item.event}
 									<!-- A square in the calendar's own colour: shape says "not one of
 									     mine", colour says which calendar. -->
 									<span
@@ -303,12 +338,14 @@
 
 				{#if variant === 'chips'}
 					<div class="tn-cal-chip-list">
-						{#each dayEvents.slice(0, shownChips) as ev (ev.id)}
+						{#each displayedEvents.slice(0, shownChips) as item (item.key)}
+							{@const ev = item.event}
 							<EventChip
 								event={ev}
 								variant="cal"
 								{hiddenRemote}
-								dragging={drag?.id === ev.id}
+								dragging={drag?.key === item.key}
+								data-chip-key={item.key}
 								{onSetChecked}
 								{onSetRemoteHidden}
 								{renderMarkdown}

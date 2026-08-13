@@ -27,13 +27,13 @@ import {
 	replaceLine,
 	getPlannerSection,
 } from '../core/planner-section';
-import { buildLineTree } from '../core/line-tree';
+import { buildLineTree, blockBodyAt } from '../core/line-tree';
 import { findPlacementLine, findBodyLine } from '../core/placement';
 import { allowRename, createRenameLog, type RenameLog } from '../core/rename-guard';
 import { resolveSlot } from '../core/event-slot';
 import { addDays, diffDays } from '../core/date-key';
 import { createSerialQueue } from '../core/serial-queue';
-import { notifyError , structuredNotice } from '../lib/obsidian-utils';
+import { notifyError, structuredNotice } from '../lib/obsidian-utils';
 import { confirm } from '../ui/modals/simple-modals';
 
 const SUPPRESS_MS = 3000;
@@ -456,11 +456,8 @@ export class SyncEngine {
 
 		// A block owns the lines indented under it. Moving the row without them
 		// would strip a morning routine off its hour and leave it behind.
-		const sourceLines = sourceContent.split('\n');
-		const sourceTree = buildLineTree(sourceContent);
-		const node = sourceTree.nodes[sourceTree.byLineNo.get(idx) ?? -1];
-		const bodyEnd = node ? node.subtreeEndLine : idx + 1;
-		const movedBlock = [movedLine, ...sourceLines.slice(idx + 1, bodyEnd)];
+		const copiedBody = blockBodyAt(sourceContent, idx) ?? [];
+		const movedBlock = [movedLine, ...copiedBody];
 
 		const heading = this.getSettings().plannerHeading;
 		// A line living under some other heading lands in the destination's planner
@@ -496,16 +493,50 @@ export class SyncEngine {
 			return false;
 		}
 
-		await this.app.vault.process(oldFile, (content) => {
-			// Re-locate inside process(): the file may have changed since the read.
-			// The subtree is recomputed from the CURRENT content, so an edit between
-			// the read and here can never make this delete somebody else's lines.
-			const i = this.findLine(content, event);
-			if (i < 0) return content;
-			const tree = buildLineTree(content);
-			const current = tree.nodes[tree.byLineNo.get(i) ?? -1];
-			return removeLines(content, i, current ? current.subtreeEndLine : i + 1);
-		});
+		let removed = false;
+		try {
+			await this.app.vault.process(oldFile, (content) => {
+				// Re-locate inside process(): the file may have changed since the read.
+				// The subtree is recomputed from the CURRENT content, so an edit between
+				// the read and here can never make this delete somebody else's lines.
+				const i = this.findLine(content, event);
+				if (i < 0) return content;
+				const currentBody = blockBodyAt(content, i);
+				if (currentBody === null) return content;
+
+				// AND IT MUST BE THE BODY WE CARRIED. Recomputing from current content
+				// stops us deleting a stranger's lines, but on its own it does the
+				// opposite kind of damage: a sub-item added under this block while the
+				// destination write was in flight is inside the CURRENT subtree, so it
+				// gets removed here — while the destination only ever received the
+				// snapshot taken before it existed. The line vanishes from both notes,
+				// and `removed` would be true, so nothing warns.
+				//
+				// Falling through leaves both copies visible and raises "Move only
+				// partly completed". Duplication is recoverable; deletion is not.
+				const drifted =
+					currentBody.length !== copiedBody.length ||
+					currentBody.some((line, k) => line !== copiedBody[k]);
+				if (drifted) return content;
+
+				const tree = buildLineTree(content);
+				const current = tree.nodes[tree.byLineNo.get(i) ?? -1];
+				removed = true;
+				return removeLines(content, i, current ? current.subtreeEndLine : i + 1);
+			});
+		} catch (error) {
+			console.error('Task Notes: source removal failed after the destination insert', error);
+		}
+		if (!removed) {
+			structuredNotice(
+				'Move only partly completed',
+				`The block was added to ${newDate}, but its source changed before it could be removed. Both copies were left visible; review them before trying again.`,
+				{ warn: true, timeoutMs: 9000 },
+			);
+			// Returning false also suppresses the filename rename in applyBlockEdit:
+			// the note still has a live source placement on the old day.
+			return false;
+		}
 		return true;
 	}
 
@@ -595,7 +626,9 @@ export class SyncEngine {
 		// time" from "the user just deleted its time", and those want opposite
 		// answers. See updateLineFromFilename.
 		const oldBasename = oldPath.split('/').pop()?.replace(/\.md$/, '') ?? '';
-		void this.enqueue(() => this.updateLineFromFilename(file, oldBasename));
+		void this.enqueue(() => this.updateLineFromFilename(file, oldBasename)).catch((e) =>
+			notifyError('Failed to update the planner line after a rename', e),
+		);
 	}
 
 	private async updateLineFromFilename(file: TFile, oldBasename = ''): Promise<void> {
@@ -695,4 +728,3 @@ export class SyncEngine {
 		return name.replace(/\.md$/, '');
 	}
 }
-

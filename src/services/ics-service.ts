@@ -7,14 +7,6 @@ import { calendarColor } from '../core/ics-colors';
 import { describeFetchFailure, stripBom } from '../core/ics-diagnosis';
 import { errorMessage, structuredNotice } from '../lib/obsidian-utils';
 
-/**
- * Fetches and expands remote ICS calendars. Uses requestUrl (CORS-free, works on
- * mobile), caches the last successful response per calendar as a fallback, and
- * refreshes on a timer, on reconnect, and on demand. Remote events are read-only.
- *
- * Expansion itself lives in core/ics-expand.ts; this class owns only the parts
- * that talk to the outside world.
- */
 /** A feed that has not answered in this long is not going to. */
 const FETCH_TIMEOUT_MS = 20_000;
 
@@ -38,6 +30,14 @@ function withTimeout<T>(promise: Promise<T>, ms = FETCH_TIMEOUT_MS): Promise<T> 
 	});
 }
 
+/**
+ * Fetches and expands remote ICS calendars. Uses requestUrl (CORS-free, works on
+ * mobile), caches the last successful response per calendar as a fallback, and
+ * refreshes on a timer, on reconnect, and on demand. Remote events are read-only.
+ *
+ * Expansion itself lives in core/ics-expand.ts; this class owns only the parts
+ * that talk to the outside world.
+ */
 export class IcsService {
 	private cache: Record<string, string>;
 	private refreshHandle: number | null = null;
@@ -56,7 +56,9 @@ export class IcsService {
 	}
 
 	register(plugin: Plugin): void {
-		plugin.registerDomEvent(window, 'online', () => void this.refreshAll());
+		plugin.registerDomEvent(window, 'online', () => {
+			void this.refreshAll().catch((e) => console.error('Task Notes: calendar refresh failed', e));
+		});
 		this.scheduleRefresh(plugin);
 	}
 
@@ -77,7 +79,10 @@ export class IcsService {
 		// and re-register, so reconfiguring repeatedly can't pile up stale handles.
 		this.clearTimer();
 		const minutes = Math.max(1, this.getSettings().icsRefreshIntervalMinutes);
-		this.refreshHandle = window.setInterval(() => void this.refreshAll(), minutes * 60_000);
+		this.refreshHandle = window.setInterval(
+			() => void this.refreshAll().catch((e) => console.error('Task Notes: calendar refresh failed', e)),
+			minutes * 60_000,
+		);
 		plugin.registerInterval(this.refreshHandle);
 	}
 
@@ -86,7 +91,7 @@ export class IcsService {
 		// A URL the user just fixed deserves a fresh complaint if it is still broken.
 		this.warned.clear();
 		this.scheduleRefresh(plugin);
-		void this.refreshAll();
+		void this.refreshAll().catch((e) => console.error('Task Notes: calendar refresh failed', e));
 	}
 
 	/**
@@ -122,15 +127,12 @@ export class IcsService {
 		const calendars = all
 			.map((cal, index) => ({ cal, index }))
 			.filter(({ cal }) => cal.enabled && cal.url.trim());
-		const events: RemoteEvent[] = [];
-		const status: Record<string, IcsStatus> = {};
-		const pendingCache: Record<string, string> = {};
-
-		await Promise.all(
+		const results = await Promise.all(
 			calendars.map(async ({ cal, index }) => {
 				const color = calendarColor(cal.color, index);
 				const fetched = await this.fetch(cal);
 				let calEvents: RemoteEvent[] | null = null;
+				let cacheText: string | null = null;
 				let error = fetched.error;
 
 				// Only trust (and cache) a body that actually parses as ICS — a 200-status
@@ -140,7 +142,9 @@ export class IcsService {
 				if (fetched.text != null && !problem) {
 					try {
 						calEvents = expandIcs(fetched.text, cal, color, Date.now());
-						pendingCache[cal.id] = fetched.text;
+						cacheText = fetched.text;
+						// Returned below rather than written into shared state. Promise.all
+						// preserves the settings order even when the network does not.
 					} catch (e) {
 						error = `Not a valid calendar: ${errorMessage(e)}`;
 						console.error(`Task Notes: failed to parse calendar "${cal.name}"`, e);
@@ -157,12 +161,16 @@ export class IcsService {
 					}
 				}
 
-				events.push(...(calEvents ?? []));
-				status[cal.id] = {
-					state: error ? (cached ? 'cached' : 'error') : 'ok',
-					count: calEvents?.length ?? 0,
-					at: Date.now(),
-					error,
+				return {
+					cal,
+					events: calEvents ?? [],
+					cacheText,
+					status: {
+						state: error ? (cached ? 'cached' : 'error') : 'ok',
+						count: calEvents?.length ?? 0,
+						at: Date.now(),
+						error,
+					} satisfies IcsStatus,
 				};
 			}),
 		);
@@ -171,9 +179,13 @@ export class IcsService {
 		// cache exactly as that run found it. Same for an unload: no cache write, no
 		// store write, no Notice from a service that has been switched off.
 		if (this.disposed || token !== this.runToken) return;
+		const events = results.flatMap((result) => result.events);
+		const status = Object.fromEntries(results.map((result) => [result.cal.id, result.status]));
 
 		let cacheChanged = false;
-		for (const [id, text] of Object.entries(pendingCache)) {
+		for (const { cal, cacheText: text } of results) {
+			if (text == null) continue;
+			const id = cal.id;
 			if (this.cache[id] === text) continue;
 			this.cache[id] = text;
 			cacheChanged = true;

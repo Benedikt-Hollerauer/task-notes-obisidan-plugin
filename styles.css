@@ -183,7 +183,11 @@
    undefined and the 12px fallback applies. Inside the properties header the
    token resolves and stacked on that header's own gap, making one 20px gap out
    of two deliberate 8px and 12px ones. */
-.task-notes-checkbox {
+/* Qualified with the element+attribute because Obsidian's own
+   `input[type=checkbox]` rule is (0,1,1) and a bare class is (0,1,0) — so the
+   sizing and margin below never actually applied. Both carriers really are
+   `<input type="checkbox">` (explorer-decorator.ts, task-properties-view.ts). */
+input[type='checkbox'].task-notes-checkbox {
     margin-right: var(--tn-space-4, 12px);
     vertical-align: middle;
     cursor: pointer;
@@ -345,7 +349,11 @@
 }
 
 /* A field the active format requires but that is still empty. */
-.tn-input-invalid {
+/* Restated with `:hover` because `.tn-input:hover` above is (0,2,0) and this
+   was (0,1,0): moving the mouse onto the offending field to correct it erased
+   the only thing marking it as the offender. */
+.tn-input.tn-input-invalid,
+.tn-input.tn-input-invalid:hover {
     border-color: var(--text-error, var(--color-red));
 }
 
@@ -1105,7 +1113,13 @@ button.tn-zoom-btn {
     display: none;
 }
 
-@container tn-allday (max-width: 46px) {
+/* 38px, not 46px. A container query measures the CONTENT box, and
+   `.tn-allday-label` carries `padding: … var(--tn-space-2)` = 4px a side. So the
+   52px default ruler queries as 44px and 44 <= 46 hid the long form: an ordinary
+   desktop pane said "Day" when the comment above says 52px was meant to show
+   "All day". The three real widths query as 32 (docked 40), 44 (default 52) and
+   48 (coarse 56), so 38 separates them the way 46 was meant to. */
+@container tn-allday (max-width: 38px) {
     .tn-allday-long {
         display: none;
     }
@@ -1133,7 +1147,13 @@ button.tn-zoom-btn {
     position: absolute;
     left: 0;
     right: 0;
-    top: 3px;
+    /* CENTRED, not offset from the top. The coarse-pointer block re-heights this
+       handle to 16px with margin-top:-8px while leaving a fixed `top: 3px`,
+       which put the accent bar about 5px INSIDE the lane — a line permanently
+       cutting across the bottom of the all-day chips instead of sitting on the
+       divider. Centring holds for every handle height. */
+    top: 50%;
+    transform: translateY(-50%);
     height: 1px;
     background: var(--interactive-accent);
     opacity: 0;
@@ -1171,6 +1191,13 @@ button.tn-allday-toggle {
 .tn-ruler {
     width: var(--tn-ruler-width);
     flex: 0 0 var(--tn-ruler-width);
+}
+
+/* The gutter has to BE the canvas, because `.tn-hour span` masks the hour rule
+   by painting `--tn-canvas` over it. Without this the ruler inherited
+   `--background-primary` and each numeral wore a visible lighter patch. */
+.tn-ruler {
+    background: var(--tn-canvas);
 }
 
 /* The lane column the pointer is over while dragging a block into it — "drop
@@ -1846,7 +1873,12 @@ input[type='checkbox'].tn-check {
    shares, above.) */
 
 /* Expanded: opens over its neighbours, but never moves from its start time. */
-.tn-block-expanded {
+/* Doubled `.tn-block` on purpose. As a bare `.tn-block-expanded` this is (0,1,0)
+   and `.tn-block:hover` below is (0,2,0), so pointing at an expanded block sent
+   it from z-index 10 back to 4 — under the ghost (5) and the now-needle (6),
+   which then drew straight across its body rows. The four bar states are
+   qualified the same way for the same reason. */
+.tn-block.tn-block-expanded {
     height: auto !important;
     /* Never shorter than the time it occupies — expanding must not make a block
        stop matching its own duration — but never taller than the pane either.
@@ -2185,6 +2217,16 @@ button.tn-cal-more {
 .tn-cal-dot.tn-dot-remote {
     background: var(--tn-dot-color, var(--tn-event-color));
     border-radius: 1px;
+}
+
+/* TODAY'S dots sit on the accent fill (they live inside `.tn-cal-daynum`, which
+   is the whole cell in the dot variants), and both the event and density dots
+   are themselves `--interactive-accent` — so today was the one day whose
+   activity never showed. Remote dots are exempt: their colour identifies which
+   calendar they came from and has to survive. */
+.tn-cal-cell.tn-today .tn-cal-daynum .tn-cal-dot:not(.tn-dot-remote) {
+    background: var(--text-on-accent);
+    border-color: var(--text-on-accent);
 }
 
 /* Three visually distinct sources, matching the three settings toggles. */

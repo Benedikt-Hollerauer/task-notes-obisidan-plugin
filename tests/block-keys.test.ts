@@ -49,12 +49,18 @@ describe('block keys — a duplicate id must not be able to freeze the grid', ()
 		expect(blocks[0]?.key).not.toBe(blocks[1]?.key);
 	});
 
-	it('keeps the id itself intact — every lookup still uses it', () => {
-		// The key is for reconciliation only. `data-block-id`, the byId map, the
-		// drag target and the overlap set all still address a block by its id, so
-		// the key must not have replaced it.
+	it('keeps the domain id intact while display lookups use the unique key', () => {
+		// Persistence/reminders still identify the occurrence by its domain id;
+		// layout and interaction state use the key so duplicates cannot alias.
 		const { timed: blocks } = dayBlocks(DAY, [timed('dup', 600), timed('dup', 780)], SLOT);
 		expect(blocks.map((b) => b.id)).toEqual(['dup', 'dup']);
+	});
+
+	it('lays duplicate ids into separate overlap columns', () => {
+		const day = dayBlocks(DAY, [timed('dup', 600), timed('dup', 600)], SLOT);
+		expect(day.overlapping).toEqual(new Set(day.timed.map((block) => block.key)));
+		expect(day.timed.map((block) => block.left)).toEqual([0, 0.5]);
+		expect(day.timed.map((block) => block.width)).toEqual([0.5, 0.5]);
 	});
 
 	it('separates the same event drawn on two different days', () => {

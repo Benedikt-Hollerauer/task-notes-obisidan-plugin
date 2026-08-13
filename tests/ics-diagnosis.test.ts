@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeFetchFailure, stripBom } from '../src/core/ics-diagnosis';
+import { describeFetchFailure, normalizeIcsCache, stripBom } from '../src/core/ics-diagnosis';
 
 const GOOGLE_PUBLIC =
 	'https://calendar.google.com/calendar/ical/someone%40example.com/public/basic.ics';
@@ -80,5 +80,20 @@ describe('stripBom', () => {
 		// A BOM in the middle is real content (however odd) and not ours to delete.
 		expect(stripBom('﻿﻿X')).toBe('﻿X');
 		expect(stripBom('X﻿')).toBe('X﻿');
+	});
+});
+
+describe('normalizeIcsCache', () => {
+	it('keeps string bodies and discards corrupt entries independently', () => {
+		expect(normalizeIcsCache({ work: 'BEGIN:VCALENDAR', bad: 42, nested: {} })).toEqual({
+			work: 'BEGIN:VCALENDAR',
+		});
+	});
+
+	it('rejects arrays, primitives, null and empty cache keys', () => {
+		for (const raw of [null, 'body', 7, ['BEGIN:VCALENDAR']]) {
+			expect(normalizeIcsCache(raw)).toEqual({});
+		}
+		expect(normalizeIcsCache({ '': 'body', okay: '' })).toEqual({ okay: '' });
 	});
 });

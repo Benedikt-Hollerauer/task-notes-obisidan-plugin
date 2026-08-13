@@ -16,7 +16,7 @@
 //
 // Each test below removes one of those and fails without its fix.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 import EventChip from '../../src/ui/views/svelte/EventChip.svelte';
 import Harness from './ChipLabelHarness.svelte';
@@ -44,7 +44,7 @@ describe('EventChip — a label is never allowed to be blank', () => {
 		return el;
 	};
 
-	const render = (renderMarkdown: ((el: HTMLElement, text: string) => void) | null) =>
+	const render = (renderMarkdown: ((el: HTMLElement, text: string) => (() => void) | void) | null) =>
 		mount(EventChip, {
 			target: host,
 			props: { event: EVENT, variant: 'allday' as const, hiddenRemote: new Set<string>(), renderMarkdown },
@@ -134,5 +134,24 @@ describe('EventChip — a label is never allowed to be blank', () => {
 		const app = render(() => {});
 		expect(chip().classList.contains('markdown-rendered')).toBe(true);
 		unmount(app);
+	});
+
+	it('releases renderer resources on replacement and destruction', () => {
+		const firstCleanup = vi.fn();
+		const secondCleanup = vi.fn();
+		const app = mount(Harness, {
+			target: host,
+			props: {
+				event: EVENT as TaskEvent,
+				initial: () => firstCleanup,
+			},
+		});
+		flushSync();
+		app.setRenderer(() => secondCleanup);
+		flushSync();
+		expect(firstCleanup).toHaveBeenCalledOnce();
+		expect(secondCleanup).not.toHaveBeenCalled();
+		unmount(app);
+		expect(secondCleanup).toHaveBeenCalledOnce();
 	});
 });

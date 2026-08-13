@@ -6,6 +6,43 @@ import { remotePrefill } from '../src/core/remote-prefill';
 const at = (iso: string): number => new Date(iso).getTime();
 
 describe('remotePrefill — what a calendar event can honestly fill in', () => {
+	// A calendar day is not always 86,400,000 ms. Europe/Berlin's 2026-03-29 is 23
+	// hours long, and the old code stepped back a fixed day from the exclusive
+	// DTEND — landing on 2026-03-28 for an event whose last day is the 29th. That
+	// wrong date went straight into a filename.
+	it('an all-day span across the spring-forward keeps its true last day', () => {
+		expect(
+			remotePrefill({
+				title: 'Trip',
+				startTs: at('2026-03-27T00:00:00'),
+				endTs: at('2026-03-30T00:00:00'), // exclusive → last day is the 29th
+				allDay: true,
+			}),
+		).toMatchObject({ startDate: '2026-03-27', endDate: '2026-03-29' });
+	});
+
+	it('and across the autumn 25-hour day', () => {
+		expect(
+			remotePrefill({
+				title: 'Trip',
+				startTs: at('2026-10-24T00:00:00'),
+				endTs: at('2026-10-27T00:00:00'), // last day is the 26th
+				allDay: true,
+			}),
+		).toMatchObject({ startDate: '2026-10-24', endDate: '2026-10-26' });
+	});
+
+	it('a single all-day event still reports no endDate at all', () => {
+		expect(
+			remotePrefill({
+				title: 'Holiday',
+				startTs: at('2026-08-25T00:00:00'),
+				endTs: at('2026-08-26T00:00:00'),
+				allDay: true,
+			}),
+		).not.toHaveProperty('endDate');
+	});
+
 	it('carries the date and the wall-clock time', () => {
 		expect(
 			remotePrefill({

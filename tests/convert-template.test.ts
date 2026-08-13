@@ -11,7 +11,13 @@
 // APPENDS to a non-empty file. Two calls, one template, twice in the note.
 
 import { describe, it, expect } from 'vitest';
-import { shouldApplyConvertTemplate } from '../src/core/emoji';
+import {
+	shouldApplyConvertTemplate,
+	taskBasename,
+	activePrefixOf,
+	extractTaskName,
+	normalizeEmoji,
+} from '../src/core/emoji';
 import { TASK_EMOJIS } from '../src/constants';
 
 const SCHEDULED = TASK_EMOJIS.SCHEDULED; // 📅
@@ -72,5 +78,38 @@ describe('shouldApplyConvertTemplate — a template belongs to becoming a new ty
 		// accident on a symmetric comparison.
 		expect(shouldApplyConvertTemplate('📅 By 2026-08-25, a - 1 - b', UNCHECKED, true)).toBe(true);
 		expect(shouldApplyConvertTemplate('◻️ a - 1 - b', UNCHECKED, true)).toBe(false);
+	});
+});
+
+// THE 🅰️ MARKER SURVIVES EVERY RENAME PATH.
+//
+// `core/emoji.ts` states the rule: "every rename must put the prefix back". Two
+// of the four basename-assembly sites did not — `convert` and `createTaskNote`
+// spelled the expression out inline without `activePrefixOf`. Since `convert` is
+// also how "Link into day plan" renames an existing 📅 note, using that feature on
+// a `🅰️ 📅 …` note silently dropped the marker and rewrote every wikilink to it.
+//
+// `taskBasename` now takes the prefix as an argument, so the four sites cannot
+// disagree again without saying so.
+describe('taskBasename — one spelling of a task filename', () => {
+	it('carries a prefix when given one, and omits it when not', () => {
+		expect(taskBasename('📅', 'By 2026-08-20, a - 1 - b', '🅰️ ')).toBe(
+			'🅰️ 📅 By 2026-08-20, a - 1 - b',
+		);
+		expect(taskBasename('📅', 'By 2026-08-20, a - 1 - b')).toBe('📅 By 2026-08-20, a - 1 - b');
+	});
+
+	it('round-trips a marked name through activePrefixOf', () => {
+		const original = '🅰️ 📅 By 2026-08-20, prepare - 1 - deck';
+		const rebuilt = taskBasename('📅', extractTaskName(original), activePrefixOf(original));
+		expect(rebuilt).toBe(original);
+	});
+
+	it('squeezes whitespace and normalises the emoji exactly as the four sites did', () => {
+		// `normalizeEmoji` strips variation selectors rather than adding them, so a
+		// bare `◻` stays bare. Pinned because it looks like a normalisation bug and
+		// is not one — this is the behaviour every rename path already had.
+		expect(taskBasename(UNCHECKED, '  spaced   out  ')).toBe(`${normalizeEmoji(UNCHECKED)} spaced out`);
+		expect(taskBasename('◻', 'x')).toBe('◻ x');
 	});
 });

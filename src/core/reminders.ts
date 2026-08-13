@@ -5,7 +5,7 @@
 // whether a reminder fires at all.
 
 import type { TaskEvent } from '../types';
-import { timeOnDayTs } from './date-key';
+import { timeOnDayTs, tsToLocalKey } from './date-key';
 
 export type ReminderKind = 'start' | 'lead' | 'allday';
 
@@ -51,10 +51,23 @@ export function eventStartTs(ev: TaskEvent): number | null {
 	return timeOnDayTs(ev.date, ev.startMinutes);
 }
 
-/** The day key an event belongs to, for its all-day reminder. */
+/**
+ * The day key an event belongs to, for its all-day reminder.
+ *
+ * REMOTE all-day occurrences count. They used to return null here, and
+ * `eventStartTs` returns null for them too, so `remindersFor` produced an empty
+ * list: a subscribed birthday or holiday feed announced nothing at all, while
+ * "Notify for remote events" and "Announce all-day items at (hour)" both implied
+ * it was covered. "Send a test notification" reported no reminders armed while
+ * the calendar plainly showed them.
+ *
+ * The occurrence's START day is the one announced, matching what a local all-day
+ * item does with `ev.date`. `collect` still gates the whole remote category on
+ * `notifyForRemoteEvents`, so this adds nothing for anyone who has that off.
+ */
 function allDayKey(ev: TaskEvent): string | null {
 	if (ev.kind === 'local') return ev.startMinutes == null ? ev.date : null;
-	return null;
+	return ev.allDay ? tsToLocalKey(ev.startTs) : null;
 }
 
 const formatTime = (ts: number): string => {

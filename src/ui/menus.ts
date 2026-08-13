@@ -8,6 +8,7 @@ import { hasTaskEmoji, getNormalizedEmoji, normalizeEmoji } from '../core/emoji'
 import { dotToMinutes } from '../core/timestamps';
 import { getBasename, isMarkdownFile, isFolder, showMenuSafely } from '../lib/obsidian-utils';
 import { TaskPropertiesModal } from './modals/task-properties-modal';
+import { confirm } from './modals/simple-modals';
 import { CustomEmojiModal } from './modals/custom-emoji-modal';
 
 /** Builds the file-explorer / checkbox context-menu items and their actions. */
@@ -17,6 +18,14 @@ export class TaskMenus {
 		private taskFiles: TaskFileService,
 		private syncEngine: SyncEngine,
 		private getSettings: () => TaskNotesSettings,
+		/**
+		 * Is this file one of the user's daily notes?
+		 *
+		 * Injected rather than derived here because `DailyNoteService` owns the
+		 * answer (it depends on the core Daily Notes settings and the strict-folder
+		 * toggle), and the menus have no business re-deriving it.
+		 */
+		private isDailyNote: (item: TAbstractFile) => boolean = () => false,
 	) {}
 
 	/** Populate a menu passed by the `file-menu` workspace event. */
@@ -83,6 +92,29 @@ export class TaskMenus {
 	}
 
 	private async doConvert(item: TAbstractFile, emoji: string, props: TaskProperties): Promise<void> {
+		// A DAILY NOTE IS NOT A TASK. Renaming `2026-08-20.md` to `📅 By …` makes
+		// the plugin stop recognising it: `dateOf` returns null, the index drops it,
+		// that whole day disappears from the timeline, and its reminders stop. With
+		// "apply templates on conversion" on, the scheduled template is appended to
+		// the day plan on the way out.
+		//
+		// The item stays in the menu — this is a real thing to want occasionally —
+		// but it now says what it costs first.
+		if (this.isDailyNote(item)) {
+			const proceed = await confirm(this.app, {
+				title: 'Convert your daily note into a task note?',
+				body:
+					`"${getBasename(item)}" is a daily note. Converting it renames the file, and this ` +
+					`plugin will no longer recognise it as that day:\n\n` +
+					`• the day disappears from the timeline, along with everything planned on it\n` +
+					`• its reminders stop\n` +
+					`• its planner lines are no longer synced\n\n` +
+					`Renaming it back restores all of it. Nothing is deleted either way.`,
+				cta: 'Convert anyway',
+			});
+			if (!proceed) return;
+		}
+
 		const ok = await this.taskFiles.convert(item, emoji, props);
 		if (!ok) return;
 		if (emoji === TASK_EMOJIS.SCHEDULED && props.startDate && item instanceof TFile) {

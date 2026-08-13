@@ -59,3 +59,17 @@ export function describeFetchFailure(url: string, status: number | null): string
 export function stripBom(text: string): string {
 	return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 }
+
+/**
+ * Keep only usable cached response bodies from the user-editable data file.
+ * Arrays and primitive values are not cache maps; individual corrupt entries
+ * must not make the remaining offline calendars unavailable.
+ */
+export function normalizeIcsCache(raw: unknown): Record<string, string> {
+	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+	return Object.fromEntries(
+		Object.entries(raw).filter(
+			(entry): entry is [string, string] => entry[0].length > 0 && typeof entry[1] === 'string',
+		),
+	);
+}

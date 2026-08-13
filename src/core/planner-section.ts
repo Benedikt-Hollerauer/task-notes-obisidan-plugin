@@ -4,7 +4,7 @@
 
 import type { PlannerLine } from '../types';
 import { parsePlannerLine, parseListLine } from './planner-line';
-import { buildLineTree, frontmatterEnd, type LineTree } from './line-tree';
+import { buildLineTree, frontmatterEnd, type LineTree, fencedLines } from './line-tree';
 
 export interface PlannerSection {
 	found: boolean;
@@ -55,8 +55,15 @@ export function getPlannerSection(text: string, heading: string): PlannerSection
 	const target = parseConfiguredHeading(heading);
 	const lines = text.split('\n');
 
+	// A `## Day planner` written inside a ``` fence is an EXAMPLE of the heading,
+	// not the heading. Matching it made a note that documents this plugin's own
+	// syntax treat its code block as the writable planner section — and hid the
+	// real one below it.
+	const fenced = fencedLines(lines);
+
 	let headingLineNo = -1;
 	for (let i = 0; i < lines.length; i++) {
+		if (fenced.has(i)) continue;
 		if (lineIsTargetHeading(lines[i], target)) {
 			headingLineNo = i;
 			break;
@@ -120,7 +127,13 @@ export function scanDayLines(text: string, heading: string): DayScan {
 	const extraLines: PlannerLine[] = [];
 	const bodyStart = frontmatterEnd(lines);
 
+	// Fenced content is not lines. `buildLineTree` has always known this; this
+	// walker did not, so a fenced `- [ ] 09:00 standup` became a real block —
+	// draggable, and dragging it rewrote a line INSIDE the user's code block.
+	const fenced = fencedLines(lines);
+
 	for (let i = bodyStart; i < lines.length; i++) {
+		if (fenced.has(i)) continue;
 		const inSection = section.found && i >= section.start && i < section.end;
 		const planner = inSection ? parsePlannerLine(lines[i], i) : null;
 		if (planner) {
@@ -328,6 +341,16 @@ export function insertTimedBlockResult(
 ): InsertResult {
 	if (block.length === 0) return { text, inserted: false, reason: 'empty' };
 	if (startMinutes == null) return insertBlockResult(text, heading, block, options);
+
+	// "Insert new event lines in start-time order", OFF, actually means it.
+	//
+	// `options.sorted` was forwarded only on the fallback branch below, so the
+	// toggle bit on an empty day — the one case with nothing to sort — and was
+	// ignored the moment a note held a single timed line. Turning it off appeared
+	// to do nothing. Going straight to `insertBlockResult` appends within the
+	// planner section instead of seeking a time-ordered slot, which is what the
+	// setting's name has always promised.
+	if (options.sorted === false) return insertBlockResult(text, heading, block, options);
 
 	const point = findTimedInsertPoint(text, startMinutes);
 	if (point.fallback) return insertBlockResult(text, heading, block, options);

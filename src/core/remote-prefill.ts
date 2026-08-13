@@ -46,8 +46,13 @@ export function remotePrefill(event: RemoteOccurrence): Partial<TaskProperties> 
 		out.time = minutesToDot(start.getHours() * 60 + start.getMinutes());
 	}
 
-	// An all-day event\'s DTEND is exclusive, so its last day is the day before.
-	const endTs = event.allDay ? event.endTs - 86_400_000 : event.endTs;
+	// An all-day event's DTEND is exclusive, so its last day is the day before.
+	// Step back ONE MILLISECOND, not one day: a calendar day is not always 86.4M ms.
+	// Europe/Berlin's 2026-03-29 is 23 hours long, so subtracting a fixed day from a
+	// DTEND of 2026-03-30 landed on 2026-03-28 — every spring-forward event was
+	// prefilled a day short, and that value goes straight into a filename.
+	// core/event-range.ts already does it this way for the same reason.
+	const endTs = event.allDay ? event.endTs - 1 : event.endTs;
 	const endDate = dayKeyOf(endTs);
 	if (endDate > startDate) out.endDate = endDate;
 

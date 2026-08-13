@@ -244,7 +244,6 @@
 		if (next) range = next;
 	}
 
-	/** The ranges that don't fit the toolbar, offered in a native menu. */
 	/**
 	 * Fade the range pills' right edge ONLY while they really overflow.
 	 *
@@ -257,13 +256,23 @@
 	 * the row wraps, so overflow starts and stops without any state changing here.
 	 */
 	function watchOverflow(node: HTMLElement): () => void {
-		const sync = (): void => node.toggleClass('tn-overflowing', node.scrollWidth > node.clientWidth);
+		// `classList.toggle`, not Obsidian's `toggleClass`. This directory is the
+		// Obsidian-free one — it is unit-tested against a mock — and `toggleClass`
+		// is a method Obsidian monkey-patches onto HTMLElement.prototype. It does
+		// not exist in happy-dom, which is why a DOM test had to install it by
+		// hand; and this call sits outside the <svelte:boundary>, so a test that
+		// forgot the shim failed the whole render instead of degrading. Standard
+		// DOM, identical behaviour.
+		const sync = (): void => {
+			node.classList.toggle('tn-overflowing', node.scrollWidth > node.clientWidth);
+		};
 		const observer = new ResizeObserver(sync);
 		observer.observe(node);
 		sync();
 		return () => observer.disconnect();
 	}
 
+	/** The ranges that don't fit the toolbar, offered in a native menu. */
 	function openRangeMenu(e: MouseEvent): void {
 		ctx.actions.showMenu(
 			SECONDARY_TIMELINE_RANGES.map((r) => ({

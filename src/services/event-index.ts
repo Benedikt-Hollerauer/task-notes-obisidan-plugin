@@ -64,6 +64,14 @@ export class EventIndex {
 			this.app.vault.on('rename', (f, oldPath) => {
 				this.mark(oldPath);
 				this.mark(f.path);
+				// A FOLDER rename fires exactly once, for the folder, and no
+				// `changed` follows for anything inside it. `mark` drops non-.md
+				// paths, so every descendant stayed keyed under its old path: the
+				// linked note then rendered twice — once as a bare line event and
+				// once as an un-clickable ghost — until the next reload. Renaming
+				// the daily-notes folder kept producing blocks for notes that were
+				// no longer there.
+				if (!f.path.endsWith('.md')) this.markSubtree(oldPath, f.path);
 			}),
 		);
 		plugin.registerEvent(this.app.metadataCache.on('changed', (f) => this.mark(f.path)));
@@ -102,18 +110,26 @@ export class EventIndex {
 		this.rebuild();
 		// Everything the launch produced is already reflected; from here on,
 		// changes are real user edits.
-		this.dirty.clear();
+		//
+		// ONLY the paths this scan actually covered. A blanket `clear()` also threw
+		// away edits that arrived WHILE it ran — a note pulled in by Obsidian Sync
+		// two seconds into a large-vault scan is in neither the file snapshot nor
+		// the surviving dirty set, so it stayed missing from the index for the rest
+		// of the session. Whatever is left over gets a flush of its own.
+		for (const file of files) this.dirty.delete(file.path);
 		this.started = true;
+		if (this.dirty.size > 0) this.scheduleFlush();
 	}
 
 	/**
-	 * Re-read every file already in the index and rebuild.
+	 * Re-read every Markdown file and rebuild.
 	 *
 	 * Some settings — the timeline heading above all — are read while indexing,
 	 * so changing one leaves every view showing results computed under the old
-	 * value until some unrelated file happens to change. This re-reads; it never
-	 * writes, never scans the vault for new files, and never reports a note as
-	 * changed (which would put it in front of the renamer).
+	 * value until some unrelated file happens to change. A full scan is required
+	 * because the same settings can make previously ineligible notes discoverable.
+	 * It never writes or reports a note as changed (which would put it in front of
+	 * the renamer).
 	 */
 	async reindexAll(): Promise<void> {
 		if (this.disposed) return;
@@ -123,12 +139,17 @@ export class EventIndex {
 	}
 
 	private async reindexInner(): Promise<void> {
-		const paths = [...this.byDaily.keys(), ...this.byFile.keys()];
+		// Settings can make a file newly eligible: relaxing the daily-note folder,
+		// changing the scheduled-name grammar, or clearing a template exclusion. A
+		// pass over only the existing maps can never discover those files.
+		const files = this.app.vault.getMarkdownFiles();
+		const live = new Set(files.map((file) => file.path));
+		for (const path of this.byDaily.keys()) if (!live.has(path)) this.byDaily.delete(path);
+		for (const path of this.byFile.keys()) if (!live.has(path)) this.byFile.delete(path);
 		const excluded = this.excludedPaths();
 		await Promise.all(
-			paths.map((path) => {
-				const file = this.app.vault.getFileByPath(path);
-				if (!file) return Promise.resolve();
+			files.map((file) => {
+				const path = file.path;
 				return this.classifyInto(file, excluded).catch((e) =>
 					console.error(`Task Notes: failed to re-index ${path}`, e),
 				);
@@ -172,6 +193,25 @@ export class EventIndex {
 	}
 
 	/**
+	 * Re-index every indexed note that lived under a renamed folder.
+	 *
+	 * Marks both the old path (so the stale entry is dropped) and the new one (so
+	 * the note is re-read at where it now lives). Driven off the index's own keys
+	 * rather than a vault walk: only files we actually hold can be stale.
+	 */
+	private markSubtree(oldFolder: string, newFolder: string): void {
+		if (this.disposed) return;
+		const prefix = `${oldFolder}/`;
+		const stale = [...this.byFile.keys(), ...this.byDaily.keys()].filter((p) =>
+			p.startsWith(prefix),
+		);
+		for (const path of stale) {
+			this.mark(path);
+			this.mark(`${newFolder}/${path.slice(prefix.length)}`);
+		}
+	}
+
+	/**
 	 * A COALESCER, not a debounce: the first dirty path starts the clock and
 	 * later ones join the same pass. Deliberately not `debounce(…, true)` —
 	 * resetting the timer on every change would let a burst of edits (a paste, a
@@ -208,17 +248,35 @@ export class EventIndex {
 		const excluded = this.excludedPaths();
 
 		const changedDaily: string[] = [];
+		/**
+		 * Did this flush touch anything the index actually holds?
+		 *
+		 * `rebuild()` walks every DayPlan in `byDaily`, resolves every linked line
+		 * through the metadata cache and re-allocates the whole event list — and it
+		 * used to run on EVERY flush. Typing in `Projects/Roadmap.md`, a note that is
+		 * neither a daily note nor a 📅 file, fired `metadataCache.changed` and paid
+		 * for a full rebuild across a year of daily notes, twice a second, for a file
+		 * the index does not even store.
+		 *
+		 * A path matters if it is in the index now, or was before this pass removed
+		 * it. Anything else cannot change the published result.
+		 */
+		let touched = false;
 		for (const path of paths) {
+			// BEFORE classifyInto, which mutates both maps.
+			const wasIndexed = this.byFile.has(path) || this.byDaily.has(path);
 			const file = this.app.vault.getAbstractFileByPath(path);
 			if (!isMarkdownFile(file)) {
 				this.byFile.delete(path);
 				this.byDaily.delete(path);
+				if (wasIndexed) touched = true;
 				continue;
 			}
 			try {
 				const before = this.byDaily.get(path);
 				const kind = await this.classifyInto(file, excluded);
 				const after = this.byDaily.get(path);
+				if (kind !== 'none' || wasIndexed) touched = true;
 				// Report a daily note as changed only when something reconcile CARES
 				// about changed. Ticking a checkbox rewrites one character; without this
 				// it would run the renamer over the whole day, for nothing.
@@ -236,7 +294,7 @@ export class EventIndex {
 		// Unloaded while we were reading: publish nothing and, above all, reconcile
 		// nothing — that path ends in fileManager.renameFile.
 		if (this.disposed) return;
-		this.rebuild();
+		if (touched) this.rebuild();
 		if (changedDaily.length && this.started) this.onDailyNotesChanged?.(changedDaily);
 	}
 

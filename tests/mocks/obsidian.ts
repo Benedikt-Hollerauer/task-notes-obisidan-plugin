@@ -4,6 +4,48 @@ import moment from 'moment';
 
 export { moment };
 
+/** Small runtime file/folder shapes for service and DOM integration tests. */
+export class TAbstractFile {
+	name: string;
+	constructor(public path: string) {
+		this.name = path.split('/').pop() ?? path;
+	}
+}
+
+export class TFile extends TAbstractFile {
+	basename: string;
+	extension: string;
+	constructor(path: string) {
+		super(path);
+		const dot = this.name.lastIndexOf('.');
+		this.extension = dot >= 0 ? this.name.slice(dot + 1) : '';
+		this.basename = dot >= 0 ? this.name.slice(0, dot) : this.name;
+	}
+}
+
+export class TFolder extends TAbstractFile {}
+
+export class ItemView {
+	app: unknown;
+	contentEl: HTMLElement;
+	constructor(public leaf: { app: unknown }) {
+		this.app = leaf.app;
+		this.contentEl = document.createElement('div');
+	}
+	registerEvent(_ref: unknown): void {}
+}
+
+/** Base class only; service tests import modal modules but never open one. */
+export class Modal {
+	constructor(_app: unknown) {}
+	open(): void {}
+	close(): void {}
+}
+
+export async function requestUrl(): Promise<never> {
+	throw new Error('requestUrl is not configured in this test');
+}
+
 export function normalizePath(path: string): string {
 	// Mirror Obsidian's normalizePath closely enough for unit tests.
 	return path

@@ -80,7 +80,7 @@
 	const MAX_EXPANDED_ROWS = 200;
 
 	/** The one block currently expanded over its neighbours, if any. */
-	let expandedId = $state<string | null>(null);
+	let expandedKey = $state<string | null>(null);
 
 	/**
 	 * The current minute, derived once. `now` is a millisecond timestamp ticking
@@ -227,8 +227,8 @@
 		return () => el.removeEventListener('wheel', onWheel);
 	});
 
-	let byId = $derived(
-		new Map(columns.flatMap((c) => [...c.blocks.timed, ...c.blocks.allDay]).map((b) => [b.id, b.event])),
+	let byKey = $derived(
+		new Map(columns.flatMap((c) => [...c.blocks.timed, ...c.blocks.allDay]).map((b) => [b.key, b.event])),
 	);
 
 	let gridEl = $state<HTMLElement | null>(null);
@@ -330,7 +330,7 @@
 		/** The pointer that started it: a second finger must not drive this drag. */
 		pointerId: number;
 		mode: Mode;
-		eventId: string | null;
+		eventKey: string | null;
 		originStart: number;
 		originEnd: number;
 		originDayIndex: number;
@@ -350,6 +350,25 @@
 		 * this, at 60px/h a 1-pixel twitch wrote a 30-minute move nobody made.
 		 */
 		offsetSettled: boolean;
+		/**
+		 * Has the pointer been OUTSIDE the all-day lane since this drag began?
+		 *
+		 * The lane is the drop target for "make this all-day", and starting a move
+		 * on a day with no all-day items MOUNTS it — which pushes the grid down
+		 * ~30px under a pointer that has not moved. A block near the top of the
+		 * scroller therefore ends up under the lane by itself, and the release
+		 * wrote the line untimed: a 09:00 block silently lost its time.
+		 *
+		 * Click-slop does not cover this. Slop is 4px (mouse); the layout shift is
+		 * ~30px, so any twitch past 4px stops the gesture looking like a click
+		 * while the pointer is still sitting where it always was.
+		 *
+		 * So the lane must be ENTERED, not merely arrived under: it is ignored
+		 * until the pointer has been seen outside it at least once. Dragging
+		 * upward into the lane sets this on the first move and behaves exactly as
+		 * before.
+		 */
+		laneArmed: boolean;
 		/** Where the press landed, for the click-slop tests below. */
 		from: Point;
 	}
@@ -369,7 +388,7 @@
 	 * re-render timing, on `pointerup` vs `lostpointercapture` ordering, or on the
 	 * chip surviving an index rebuild mid-drag. Only the ghost preview is reactive.
 	 */
-	let allDayGesture: { pointerId: number; id: string; originDay: string; from: Point } | null = null;
+	let allDayGesture: { pointerId: number; key: string; originDay: string; from: Point } | null = null;
 	let allDayPreview = $state<{ dayIndex: number; start: number } | null>(null);
 	/**
 	 * The lane column a dragged CHIP is hovering, or null.
@@ -380,14 +399,14 @@
 	 */
 	let chipLaneDay = $state<number | null>(null);
 	/** Reactive mirror of the gesture, for the drag styling only. */
-	let draggingChip = $state<{ id: string; day: string } | null>(null);
+	let draggingChip = $state<{ key: string; day: string } | null>(null);
 
 	function onAllDayPointerDown(e: PointerEvent, item: AllDayItem) {
 		if (e.button !== 0) return;
 		if (item.event.kind === 'remote') return; // remote entries are read-only
-		allDayGesture = { pointerId: e.pointerId, id: item.id, originDay: item.dayKey, from: { x: e.clientX, y: e.clientY } };
+		allDayGesture = { pointerId: e.pointerId, key: item.key, originDay: item.dayKey, from: { x: e.clientX, y: e.clientY } };
 		allDayPreview = null;
-		draggingChip = { id: item.id, day: item.dayKey };
+		draggingChip = { key: item.key, day: item.dayKey };
 		// Capture on the grid root, which never unmounts — capturing on the chip
 		// loses the gesture the moment an index rebuild replaces it.
 		gridEl?.setPointerCapture?.(e.pointerId);
@@ -430,7 +449,7 @@
 		draggingChip = null;
 		if (!gesture) return;
 
-		const ev = byId.get(gesture.id);
+		const ev = byKey.get(gesture.key);
 		if (!ev || ev.kind === 'remote') return;
 
 		const hit = pointerDay(e.clientX, e.clientY);
@@ -507,9 +526,9 @@
 	}
 
 	function eventAt(target: HTMLElement): TaskEvent | null {
-		const blockEl = target.closest<HTMLElement>('[data-block-id]');
-		const id = blockEl?.getAttribute('data-block-id');
-		return id ? byId.get(id) ?? null : null;
+		const blockEl = target.closest<HTMLElement>('[data-block-key]');
+		const key = blockEl?.getAttribute('data-block-key');
+		return key ? byKey.get(key) ?? null : null;
 	}
 
 	function onPointerDown(e: PointerEvent) {
@@ -517,7 +536,7 @@
 		if (drag || laneDrag || allDayGesture) return; // one gesture at a time
 		const target = e.target as HTMLElement;
 		if (target.closest('[data-badge]')) return; // badge buttons act on click, not drag
-		const blockEl = target.closest<HTMLElement>('[data-block-id]');
+		const blockEl = target.closest<HTMLElement>('[data-block-key]');
 		// The press's own target knows its column; elementFromPoint is only needed
 		// once pointer capture has retargeted the moves. Never guess day 0 — that
 		// makes a motionless click report "moved" and perform a cross-day write.
@@ -527,10 +546,10 @@
 		const rawMin = pointerMinutes(e.clientY);
 
 		if (blockEl) {
-			const id = blockEl.getAttribute('data-block-id')!;
-			const ev = byId.get(id);
+			const key = blockEl.getAttribute('data-block-key')!;
+			const ev = byKey.get(key);
 			if (!ev || ev.kind === 'remote') return; // remote blocks are read-only
-			const block = columns[dayIndex]?.blocks.timed.find((b) => b.id === id) ?? findBlock(id);
+			const block = columns[dayIndex]?.blocks.timed.find((b) => b.key === key) ?? findBlock(key);
 			if (!block) return;
 			// A block running past midnight is drawn to the day edge; its geometry is
 			// not its real duration, so dragging it would destroy the user's end time.
@@ -545,7 +564,7 @@
 			drag = {
 				pointerId: e.pointerId,
 				mode: isResize ? 'resize' : 'move',
-				eventId: id,
+				eventKey: key,
 				originStart,
 				originEnd,
 				originDayIndex: dayIndex,
@@ -555,6 +574,9 @@
 				curEnd: originEnd,
 				toLaneDay: null,
 				offsetSettled: false,
+				// A day that already HAS all-day items did not mount the lane for
+				// this drag, so nothing shifted and the lane is a target at once.
+				laneArmed: hasAllDay,
 				from: { x: e.clientX, y: e.clientY },
 			};
 		} else if (target.closest('[data-column]')) {
@@ -562,7 +584,7 @@
 			drag = {
 				pointerId: e.pointerId,
 				mode: 'create',
-				eventId: null,
+				eventKey: null,
 				originStart: start,
 				originEnd: start + settings.defaultEventDurationMinutes,
 				originDayIndex: dayIndex,
@@ -573,6 +595,7 @@
 				toLaneDay: null,
 				// Create never mounts the lane, so its layout cannot shift.
 				offsetSettled: true,
+				laneArmed: true,
 				from: { x: e.clientX, y: e.clientY },
 			};
 		} else {
@@ -584,9 +607,9 @@
 		e.preventDefault();
 	}
 
-	function findBlock(id: string): TimedBlock | undefined {
+	function findBlock(key: string): TimedBlock | undefined {
 		for (const c of columns) {
-			const b = c.blocks.timed.find((x) => x.id === id);
+			const b = c.blocks.timed.find((x) => x.key === key);
 			if (b) return b;
 		}
 		return undefined;
@@ -595,7 +618,7 @@
 	function onPointerMove(e: PointerEvent) {
 		if (!ownsPointer(drag, e)) return;
 		// Dragging an expanded block would drag overlay geometry: collapse it first.
-		expandedId = null;
+		expandedKey = null;
 		const rawMin = pointerMinutes(e.clientY);
 		const step = settings.snapMinutes;
 		if (drag.mode === 'move') {
@@ -611,9 +634,17 @@
 			// release below took the lane branch without ever testing for a click.
 			// Clicking a 09:00 block silently stripped its time. Slop is 4px (mouse)
 			// / 12px (touch), far below the shift, so a deliberate drag still lands.
-			const lane = isClickGesture(drag.from, { x: e.clientX, y: e.clientY }, e.pointerType)
-				? null
-				: pointerLane(e.clientX, e.clientY);
+			// The RAW geometry first, and arm off that — not off the slop test. Both
+			// "still a click" and "outside the lane" produce a null lane, so arming
+			// on the combined result would arm during the slop window, while the
+			// pointer is sitting motionless under the freshly mounted lane. The
+			// latch has to mean "the pointer was really somewhere else".
+			const rawLane = pointerLane(e.clientX, e.clientY);
+			if (!rawLane) drag.laneArmed = true;
+			const lane =
+				drag.laneArmed && !isClickGesture(drag.from, { x: e.clientX, y: e.clientY }, e.pointerType)
+					? rawLane
+					: null;
 			drag.toLaneDay = lane?.index ?? null;
 			if (lane) return;
 			if (!drag.offsetSettled) {
@@ -658,8 +689,8 @@
 			await actions.createBlock(targetDay, d.curStart, d.curEnd);
 			return;
 		}
-		if (!d.eventId) return;
-		const ev = byId.get(d.eventId);
+		if (!d.eventKey) return;
+		const ev = byKey.get(d.eventKey);
 		if (!ev || ev.kind === 'remote') return;
 
 		// Dropped in the all-day lane: the item keeps its day and loses its time.
@@ -690,17 +721,17 @@
 			return;
 		}
 
-		const isDouble = lastUp.id === d.eventId && e.timeStamp - lastUp.ts < DOUBLE_CLICK_MS;
-		lastUp = isDouble ? { id: '', ts: 0 } : { id: d.eventId, ts: e.timeStamp };
+		const isDouble = lastUp.id === d.eventKey && e.timeStamp - lastUp.ts < DOUBLE_CLICK_MS;
+		lastUp = isDouble ? { id: '', ts: 0 } : { id: d.eventKey, ts: e.timeStamp };
 		if (isDouble) {
 			// The first click of the pair expanded it; opening the note supersedes that.
-			expandedId = null;
+			expandedKey = null;
 			actions.openEvent(ev);
 			return;
 		}
 		// A single click opens the block up over its neighbours, so a busy hour can
 		// be read and ticked through at any zoom level. One at a time.
-		if (ev.kind === 'local' && ev.body) expandedId = expandedId === d.eventId ? null : d.eventId;
+		if (ev.kind === 'local' && ev.body) expandedKey = expandedKey === d.eventKey ? null : d.eventKey;
 	}
 
 	function onContextMenu(e: MouseEvent) {
@@ -715,13 +746,13 @@
 		// A control inside the block handles its own keys; preventDefault() below
 		// would otherwise cancel the native checkbox toggle.
 		if ((e.target as HTMLElement).closest('[data-badge]')) return;
-		if (e.key === 'Escape' && expandedId) {
-			expandedId = null;
+		if (e.key === 'Escape' && expandedKey) {
+			expandedKey = null;
 			return;
 		}
 		if (e.key === ' ' && blockId && ev.kind === 'local' && ev.body) {
 			e.preventDefault();
-			expandedId = expandedId === blockId ? null : blockId;
+			expandedKey = expandedKey === blockId ? null : blockId;
 			return;
 		}
 		if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -752,7 +783,7 @@
 				if (ev.kind !== 'local' || !ev.body) continue;
 				const all = settings.showCheckedBlocks ? ev.body : ev.body.filter((r) => !isChecked(r.line));
 				const rows =
-					expandedId === b.id
+					expandedKey === b.key
 						? all.slice(0, MAX_EXPANDED_ROWS)
 						: all.slice(
 								0,
@@ -874,22 +905,15 @@
 	}
 
 	/**
-	 * Render one line of Markdown into an element, at most once per distinct text.
-	 *
-	 * THE COST THIS GUARDS. The grid redraws on every zoom notch, every drag frame
-	 * and every 30-second clock tick; markdown rendering is async and not cheap.
-	 * The last rendered source is stamped on the node, so a redraw that did not
-	 * change the text costs one string comparison instead of a render.
+	 * Render one line of Markdown and hand its resource cleanup to the Svelte
+	 * attachment. An unchanged keyed node keeps its attachment across ordinary
+	 * grid redraws, so zoom and clock ticks do not restart the asynchronous work.
 	 */
-	function renderMarkdownInto(node: HTMLElement, text: string, sourcePath = ''): void {
-		// `firstChild` as well as the stamp: a stamped-but-EMPTY node means an
-		// earlier render was wiped (or never landed), and skipping it would leave
-		// the label blank forever. Stamp what is on screen, not what was attempted.
-		if (node.dataset.tnMd === text && node.firstChild) return;
+	function renderMarkdownInto(node: HTMLElement, text: string, sourcePath = ''): (() => void) | void {
 		node.dataset.tnMd = text;
 		// The note the text came from, so a [[wikilink]] in a planner line resolves
 		// the way it does in that note rather than from the vault root.
-		actions.renderMarkdown(node, text, sourcePath);
+		return actions.renderMarkdown(node, text, sourcePath);
 	}
 
 	function noteAria(key: string): string {
@@ -902,7 +926,7 @@
 	function classesFor(b: TimedBlock, overlapping: boolean, dayKey: string): string {
 		const ev = b.event;
 		let cls = ev.kind === 'remote' ? 'tn-block tn-block-remote' : 'tn-block';
-		if (b.id === expandedId) cls += ' tn-block-expanded';
+		if (b.key === expandedKey) cls += ' tn-block-expanded';
 		// A block that owns a list is a container, and reads as one: its own line
 		// bold at full strength, its rows indented and dimmed underneath.
 		if (ev.kind === 'local' && ev.body) cls += ' tn-block-has-body';
@@ -1085,7 +1109,8 @@
 							renderMarkdown={actions.renderMarkdown}
 							showCloud
 							onConvertRemote={actions.convertRemote}
-							dragging={draggingChip?.id === item.id && draggingChip?.day === item.dayKey}
+							dragging={draggingChip?.key === item.key && draggingChip?.day === item.dayKey}
+							data-chip-key={item.key}
 							onSetChecked={(ev, next) => toggleBlock(ev, next)}
 							onSetRemoteHidden={(ev, next) => toggleRemote(ev, next)}
 							title={eventTitle(item.event, { hiddenRemote, draggableToGrid: true })}
@@ -1159,15 +1184,16 @@
 						     uncaught throw silently freezes this DOM (see the boundary
 						     around the grid). -->
 						{#each col.blocks.timed as b (b.key)}
-							{@const overlapping = col.blocks.overlapping.has(b.id)}
+							{@const overlapping = col.blocks.overlapping.has(b.key)}
 							<div
 								class={classesFor(b, overlapping, day)}
+								data-block-key={b.key}
 								data-block-id={b.id}
 								role="button"
 								tabindex="0"
 								aria-label={blockAria(b)}
-								aria-expanded={b.event.kind === 'local' && b.event.body ? b.id === expandedId : undefined}
-								onkeydown={(e) => onBlockKeyDown(e, b.event, b.id)}
+								aria-expanded={b.event.kind === 'local' && b.event.body ? b.key === expandedKey : undefined}
+								onkeydown={(e) => onBlockKeyDown(e, b.event, b.key)}
 								style:top={`${yOf(b.startMin)}px`}
 								style:height={`${(b.endMin - b.startMin) * pxPerMinute}px`}
 								style:--tn-block-h={`${(b.endMin - b.startMin) * pxPerMinute}px`}
