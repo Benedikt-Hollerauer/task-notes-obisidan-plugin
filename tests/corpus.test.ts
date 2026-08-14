@@ -394,6 +394,22 @@ const CORPUS: CorpusRow[] = [
 		regenerated: 'By 2026-08-10 at 12.30h, moinsen - moinsen - moinsen',
 	},
 	{
+		// Made by hand while testing the "conversion must not invent a time" fix —
+		// 05.00h is a time that was actually typed, so it is kept, unlike the
+		// 08.00h ones the old auto-link stamped on.
+		basename: '📅 By 2026-08-15 at 05.00h, test - test - test',
+		emoji: '📅',
+		name: 'By 2026-08-15 at 05.00h, test - test - test',
+		props: {
+			actionWords: 'test',
+			amount: 'test',
+			amountOutcome: 'test',
+			startDate: '2026-08-15',
+			time: '05.00h',
+		},
+		regenerated: 'By 2026-08-15 at 05.00h, test - test - test',
+	},
+	{
 		// Two notes hand-made in the vault on 2026-08-11, same shape as the row
 		// above. The `tset` transposition is the author's own typing and stays —
 		// this file records what the vault HAS, and "fixing" a name here would be

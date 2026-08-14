@@ -1,11 +1,9 @@
-import { App, Menu, TFile, TFolder, type TAbstractFile } from 'obsidian';
+import { App, Menu, TFolder, type TAbstractFile } from 'obsidian';
 import type { TaskProperties } from '../types';
 import type { TaskNotesSettings } from '../settings/settings';
 import type { TaskFileService } from '../services/task-file-service';
-import type { SyncEngine } from '../services/sync-engine';
-import { TASK_EMOJIS, specsFor } from '../constants';
+import { specsFor } from '../constants';
 import { hasTaskEmoji, getNormalizedEmoji, normalizeEmoji } from '../core/emoji';
-import { dotToMinutes } from '../core/timestamps';
 import { getBasename, isMarkdownFile, isFolder, showMenuSafely } from '../lib/obsidian-utils';
 import { TaskPropertiesModal } from './modals/task-properties-modal';
 import { confirm } from './modals/simple-modals';
@@ -16,7 +14,6 @@ export class TaskMenus {
 	constructor(
 		private app: App,
 		private taskFiles: TaskFileService,
-		private syncEngine: SyncEngine,
 		private getSettings: () => TaskNotesSettings,
 		/**
 		 * Is this file one of the user's daily notes?
@@ -84,7 +81,7 @@ export class TaskMenus {
 		}
 	}
 
-	/** Open the properties modal, then convert (and, for 📅, link into the day plan). */
+	/** Open the properties modal, then rename the note to the type it chose. */
 	convert(item: TAbstractFile, emoji: string): void {
 		new TaskPropertiesModal(this.app, emoji, getBasename(item), this.getSettings(), (props) => {
 			void this.doConvert(item, emoji, props);
@@ -115,14 +112,28 @@ export class TaskMenus {
 			if (!proceed) return;
 		}
 
-		const ok = await this.taskFiles.convert(item, emoji, props);
-		if (!ok) return;
-		if (emoji === TASK_EMOJIS.SCHEDULED && props.startDate && item instanceof TFile) {
-			const settings = this.getSettings();
-			const start = props.time ? dotToMinutes(props.time) ?? settings.dayStartHour * 60 : settings.dayStartHour * 60;
-			const end = start + settings.defaultEventDurationMinutes;
-			await this.syncEngine.linkFileIntoDay(item.path, props.startDate, start, end);
-		}
+		// CONVERTING IS A RENAME, AND ONLY A RENAME.
+		//
+		// This used to also link the note into a day plan whenever it had a date —
+		// the guard tested `props.startDate` and never `props.time`, and both
+		// branches of the start expression came out at `dayStartHour * 60`. So
+		// converting a note with a date and a blank Time field did three things
+		// nobody asked for:
+		//
+		//   1. created or opened that day's daily note (`getOrCreateBare`), which is
+		//      why notes appeared "linked to today" — and minted bare daily notes
+		//      for future dates too;
+		//   2. wrote `- [ ] 08:00 - 09:00 [[the note]]` into it;
+		//   3. that edit dirtied the index, so `reconcile` renamed the FILE to match
+		//      the line — stamping `at 08.00h` onto a name that never had a time,
+		//      and rewriting every wikilink to it.
+		//
+		// Planning is a separate, deliberate gesture. A dated 📅 note with no
+		// planner line is already drawn as a dashed "not in plan" block
+		// (`buildUnlinkedEvent` → `linked: false`), and its ➕ is what schedules it —
+		// showing the proposed time first. Drag → "New time block" → "Create as 📅"
+		// still creates AND places in one step, because a drag supplies a real time.
+		await this.taskFiles.convert(item, emoji, props);
 	}
 
 	private promptCustomEmoji(item: TAbstractFile): void {

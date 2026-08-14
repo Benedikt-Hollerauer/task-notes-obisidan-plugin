@@ -155,7 +155,6 @@ export default class TaskNotesPlugin extends Plugin implements SettingsHost {
 		this.menus = new TaskMenus(
 			this.app,
 			this.taskFiles,
-			this.syncEngine,
 			() => this.settings,
 			(item) => item instanceof TFile && this.dailyNotes.isDailyNote(item),
 		);
